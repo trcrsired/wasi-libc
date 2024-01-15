@@ -4565,7 +4565,7 @@ static void* tmalloc_small(mstate m, size_t nb) {
 static void try_init_allocator(void);
 #endif
 
-void* dlmalloc(size_t bytes) {
+static void* dlmalloc_internal(size_t bytes, _Bool zeroing) {
   /*
      Basic algorithm:
      If a small request (< 256 bytes minus per-chunk overhead):
@@ -4702,13 +4702,26 @@ void* dlmalloc(size_t bytes) {
 
   postaction:
 #if defined(__WASI_DLMALLOC_ENABLE_MEMTAG)
-    mem = __builtin_wasm_memory_randomstoretag(0, mem, nb);
+    if (zeroing) {
+      mem = __builtin_wasm_memory_randomstoreztag(0, mem, nb);
+    }
+    else {
+      mem = __builtin_wasm_memory_randomstoretag(0, mem, nb);
+    }
+#else
+    if (zeroing) {
+      memset(mem, 0, nb);
+    }
 #endif
     POSTACTION(gm);
     return mem;
   }
 
   return 0;
+}
+
+void* dlmalloc(size_t bytes) {
+  return dlmalloc_internal(bytes, 0);
 }
 
 /* ---------------------------- free --------------------------- */
@@ -4722,7 +4735,10 @@ void dlfree(void* mem) {
 
   if (mem != 0) {
 #if defined(__WASI_DLMALLOC_ENABLE_MEMTAG)
-    mem = __builtin_wasm_memory_copytag(0, mem, (void*)0);
+    void* taginmem = __builtin_wasm_memory_loadtag(0, mem);
+    if (taginmem != mem) {
+      __builtin_trap();
+    }
 #endif
     mchunkptr p  = mem2chunk(mem);
 #if FOOTERS
@@ -4737,8 +4753,12 @@ void dlfree(void* mem) {
     if (!PREACTION(fm)) {
       check_inuse_chunk(fm, p);
       if (RTCHECK(ok_address(fm, p) && ok_inuse(p))) {
+#if defined(__WASI_DLMALLOC_ENABLE_MEMTAG)
+        p= __builtin_wasm_memory_copytag(0, p, (void*)0);
+#endif
         size_t psize = chunksize(p);
 #if defined(__WASI_DLMALLOC_ENABLE_MEMTAG)
+        mem = __builtin_wasm_memory_copytag(0, mem, (void*)0);
         __builtin_wasm_memory_storetag(0, mem, psize);
 #endif
         mchunkptr next = chunk_plus_offset(p, psize);
@@ -4837,9 +4857,13 @@ void* dlcalloc(size_t n_elements, size_t elem_size) {
         (req / n_elements != elem_size))
       req = MAX_SIZE_T; /* force downstream failure on overflow */
   }
+#if defined(__WASI_DLMALLOC_ENABLE_MEMTAG)
+  mem = dlmalloc_internal(req, 1);
+#else
   mem = dlmalloc(req);
   if (mem != 0 && calloc_must_clear(mem2chunk(mem)))
     memset(mem, 0, req);
+#endif
   return mem;
 }
 
