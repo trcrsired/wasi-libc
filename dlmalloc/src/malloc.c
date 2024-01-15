@@ -4701,6 +4701,9 @@ void* dlmalloc(size_t bytes) {
     mem = sys_alloc(gm, nb);
 
   postaction:
+#if defined(__WASI_DLMALLOC_ENABLE_MEMTAG)
+    mem = __builtin_wasm_memory_randomstoretag(0, mem, nb);
+#endif
     POSTACTION(gm);
     return mem;
   }
@@ -4718,6 +4721,9 @@ void dlfree(void* mem) {
   */
 
   if (mem != 0) {
+#if defined(__WASI_DLMALLOC_ENABLE_MEMTAG)
+    mem = __builtin_wasm_memory_copytag(0, mem, (void*)0);
+#endif
     mchunkptr p  = mem2chunk(mem);
 #if FOOTERS
     mstate fm = get_mstate_for(p);
@@ -4732,6 +4738,9 @@ void dlfree(void* mem) {
       check_inuse_chunk(fm, p);
       if (RTCHECK(ok_address(fm, p) && ok_inuse(p))) {
         size_t psize = chunksize(p);
+#if defined(__WASI_DLMALLOC_ENABLE_MEMTAG)
+        __builtin_wasm_memory_storetag(0, mem, psize);
+#endif
         mchunkptr next = chunk_plus_offset(p, psize);
         if (!pinuse(p)) {
           size_t prevsize = p->prev_foot;

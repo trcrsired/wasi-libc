@@ -25,6 +25,7 @@ BUILD_LIBC_TOP_HALF ?= yes
 OBJDIR ?= build/$(TARGET_TRIPLE)
 # 64 bit wasm?
 WASM64 ?= no
+MEMTAG ?= no
 # The directory where we store files and tools for generating WASI Preview 2 bindings
 BINDING_WORK_DIR ?= build/bindings
 # URL from which to retrieve the WIT files used to generate the WASI Preview 2 bindings
@@ -378,6 +379,10 @@ ASMFLAGS += -matomics
 CFLAGS += -I$(LIBC_BOTTOM_HALF_CLOUDLIBC_SRC)
 endif
 
+ifeq ($(MEMTAG), yes)
+MEMTAGCFLAGS += -D__WASI_DLMALLOC_ENABLE_MEMTAG
+endif
+
 # Expose the public headers to the implementation. We use `-isystem` for
 # purpose for two reasons:
 #
@@ -644,7 +649,7 @@ $(OBJDIR)/%.o: %.S include_dirs
 -include $(shell find $(OBJDIR) -name \*.d)
 
 $(DLMALLOC_OBJS) $(DLMALLOC_SO_OBJS): CFLAGS += \
-    -I$(DLMALLOC_INC)
+    -I$(DLMALLOC_INC) $(MEMTAGCFLAGS)
 
 startup_files $(LIBC_BOTTOM_HALF_ALL_OBJS) $(LIBC_BOTTOM_HALF_ALL_SO_OBJS): CFLAGS += \
     -I$(LIBC_BOTTOM_HALF_HEADERS_PRIVATE) \
