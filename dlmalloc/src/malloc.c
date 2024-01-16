@@ -4592,7 +4592,13 @@ static void* dlmalloc_common_internal(size_t bytes, _Bool zeroing) {
 #if USE_LOCKS
   ensure_initialization(); /* initialize in sys_alloc if not using locks */
 #endif
-
+#ifdef __WASI_DLMALLOC_ENABLE_MEMTAG
+  size_t mxbytes = SIZE_MAX-16u;
+  if (mxbytes < bytes) {
+    return NULL;
+  }
+  bytes += 16u;
+#endif
   if (!PREACTION(gm)) {
 #if __wasilibc_unmodified_upstream // Try to initialize the allocator.
 #else
@@ -4703,14 +4709,14 @@ static void* dlmalloc_common_internal(size_t bytes, _Bool zeroing) {
   postaction:
 #if defined(__WASI_DLMALLOC_ENABLE_MEMTAG)
     if (zeroing) {
-      mem = __builtin_wasm_memory_randomstoreztag(0, mem, nb);
+      mem = __builtin_wasm_memory_randomstoreztag(0, mem, nb-16u);
     }
     else {
-      mem = __builtin_wasm_memory_randomstoretag(0, mem, nb);
+      mem = __builtin_wasm_memory_randomstoretag(0, mem, nb-16u);
     }
 #else
     if (zeroing) {
-      memset(mem, 0, nb);
+      memset(mem, 0, nb-16u);
     }
 #endif
     POSTACTION(gm);
@@ -4759,7 +4765,7 @@ void dlfree(void* mem) {
         size_t psize = chunksize(p);
 #if defined(__WASI_DLMALLOC_ENABLE_MEMTAG)
         mem = __builtin_wasm_memory_copytag(0, mem, NULL);
-        __builtin_wasm_memory_storetag(0, mem, psize);
+        __builtin_wasm_memory_storetag(0, mem, psize - 16u);
 #endif
         mchunkptr next = chunk_plus_offset(p, psize);
         if (!pinuse(p)) {
@@ -4952,6 +4958,13 @@ static mchunkptr try_realloc_chunk(mstate m, mchunkptr p, size_t nb,
 }
 
 static void* internal_memalign(mstate m, size_t alignment, size_t bytes) {
+#ifdef __WASI_DLMALLOC_ENABLE_MEMTAG
+  size_t mxbytes = SIZE_MAX-16u;
+  if (mxbytes < bytes) {
+    return NULL;
+  }
+  bytes += 16u;
+#endif
   void* mem = 0;
   if (alignment <  MIN_CHUNK_SIZE) /* must be at least a minimum chunk size */
     alignment = MIN_CHUNK_SIZE;
@@ -5019,7 +5032,7 @@ static void* internal_memalign(mstate m, size_t alignment, size_t bytes) {
       assert (chunksize(p) >= nb);
       assert(((size_t)mem & (alignment - 1)) == 0);
 #if defined(__WASI_DLMALLOC_ENABLE_MEMTAG)
-      mem = __builtin_wasm_memory_randomstoretag(0, mem, chunksize(p));
+      mem = __builtin_wasm_memory_randomstoretag(0, mem, chunksize(p) - 16u);
 #endif
       check_inuse_chunk(m, p);
       POSTACTION(m);
@@ -5316,6 +5329,7 @@ void* dlrealloc(void* oldmem, size_t bytes) {
     if (oldmemtag != oldmem) {
       __builtin_trap();
     }
+    void* oldmemtemp = oldmem;
     oldmem = __builtin_wasm_memory_copytag(0, oldmem, NULL);
 #endif
     size_t nb = request2size(bytes);
@@ -5342,9 +5356,17 @@ void* dlrealloc(void* oldmem, size_t bytes) {
       {
         mem = internal_malloc(m, bytes);
         if (mem != 0) {
+#ifdef __WASI_DLMALLOC_ENABLE_MEMTAG
+          mchunkptr untaggedoldp = __builtin_wasm_memory_copytag(0, oldp, NULL);
+          size_t oc = chunksize(untaggedoldp) - overhead_for(untaggedoldp);
+          oc -= 16;
+          memcpy(mem, oldmemtemp, (oc < bytes)? oc : bytes);
+          internal_free(m, oldmemtemp);
+#else
           size_t oc = chunksize(oldp) - overhead_for(oldp);
           memcpy(mem, oldmem, (oc < bytes)? oc : bytes);
           internal_free(m, oldmem);
+#endif
         }
       }
     }
