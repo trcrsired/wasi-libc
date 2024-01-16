@@ -4565,7 +4565,7 @@ static void* tmalloc_small(mstate m, size_t nb) {
 static void try_init_allocator(void);
 #endif
 
-static void* dlmalloc_common_internal(size_t bytes, _Bool zeroing) {
+static void* dlmalloc_common_internal(size_t bytes, int flag) {
   /*
      Basic algorithm:
      If a small request (< 256 bytes minus per-chunk overhead):
@@ -4708,15 +4708,17 @@ static void* dlmalloc_common_internal(size_t bytes, _Bool zeroing) {
 
   postaction:
 #if defined(__WASI_DLMALLOC_ENABLE_MEMTAG)
-    if (zeroing) {
-      mem = __builtin_wasm_memory_randomstoreztag(0, mem, nb-16u);
-    }
-    else {
-      mem = __builtin_wasm_memory_randomstoretag(0, mem, nb-16u);
+    if (flag != 2){
+      if (flag == 1) {
+        mem = __builtin_wasm_memory_randomstoreztag(0, mem, nb-16u);
+      }
+      else {
+        mem = __builtin_wasm_memory_randomstoretag(0, mem, nb-16u);
+      }
     }
 #else
-    if (zeroing) {
-      memset(mem, 0, nb-16u);
+    if (flag == 1) {
+      memset(mem, 0, nb);
     }
 #endif
     POSTACTION(gm);
@@ -4958,13 +4960,6 @@ static mchunkptr try_realloc_chunk(mstate m, mchunkptr p, size_t nb,
 }
 
 static void* internal_memalign(mstate m, size_t alignment, size_t bytes) {
-#ifdef __WASI_DLMALLOC_ENABLE_MEMTAG
-  size_t mxbytes = SIZE_MAX-16u;
-  if (mxbytes < bytes) {
-    return NULL;
-  }
-  bytes += 16u;
-#endif
   void* mem = 0;
   if (alignment <  MIN_CHUNK_SIZE) /* must be at least a minimum chunk size */
     alignment = MIN_CHUNK_SIZE;
@@ -4981,7 +4976,11 @@ static void* internal_memalign(mstate m, size_t alignment, size_t bytes) {
   else {
     size_t nb = request2size(bytes);
     size_t req = nb + alignment + MIN_CHUNK_SIZE - CHUNK_OVERHEAD;
+#if defined(__WASI_DLMALLOC_ENABLE_MEMTAG)
+    mem = dlmalloc_common_internal(req, 2);
+#else
     mem = internal_malloc(m, req);
+#endif
     if (mem != 0) {
       mchunkptr p = mem2chunk(mem);
       if (PREACTION(m))
@@ -5027,14 +5026,13 @@ static void* internal_memalign(mstate m, size_t alignment, size_t bytes) {
           dispose_chunk(m, remainder, remainder_size);
         }
       }
-
       mem = chunk2mem(p);
       assert (chunksize(p) >= nb);
       assert(((size_t)mem & (alignment - 1)) == 0);
-#if defined(__WASI_DLMALLOC_ENABLE_MEMTAG)
-      mem = __builtin_wasm_memory_randomstoretag(0, mem, chunksize(p) - 16u);
-#endif
       check_inuse_chunk(m, p);
+#if defined(__WASI_DLMALLOC_ENABLE_MEMTAG)
+      mem = __builtin_wasm_memory_randomstoretag(0, mem ,chunksize(p)-16u);
+#endif
       POSTACTION(m);
     }
   }
