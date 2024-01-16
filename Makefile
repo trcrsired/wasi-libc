@@ -380,7 +380,7 @@ CFLAGS += -I$(LIBC_BOTTOM_HALF_CLOUDLIBC_SRC)
 endif
 
 ifeq ($(MEMTAG), yes)
-MEMTAGCFLAGS += -D__WASI_DLMALLOC_ENABLE_MEMTAG -DINSECURE=1
+MEMTAGCFLAGS += -D__wasilibc_dlmalloc_enable_memtag
 endif
 
 # Expose the public headers to the implementation. We use `-isystem` for

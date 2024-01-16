@@ -4592,7 +4592,7 @@ static void* dlmalloc_common_internal(size_t bytes, int flag) {
 #if USE_LOCKS
   ensure_initialization(); /* initialize in sys_alloc if not using locks */
 #endif
-#ifdef __WASI_DLMALLOC_ENABLE_MEMTAG
+#ifdef __wasilibc_dlmalloc_enable_memtag
   size_t mxbytes = SIZE_MAX-16u;
   if (mxbytes < bytes) {
     return NULL;
@@ -4707,7 +4707,7 @@ static void* dlmalloc_common_internal(size_t bytes, int flag) {
     mem = sys_alloc(gm, nb);
 
   postaction:
-#if defined(__WASI_DLMALLOC_ENABLE_MEMTAG)
+#if defined(__wasilibc_dlmalloc_enable_memtag)
     if (flag != 2){
       if (flag == 1) {
         mem = __builtin_wasm_memory_randomstoreztag(0, mem, nb-16u);
@@ -4742,7 +4742,7 @@ void dlfree(void* mem) {
   */
 
   if (mem != 0) {
-#if defined(__WASI_DLMALLOC_ENABLE_MEMTAG)
+#if defined(__wasilibc_dlmalloc_enable_memtag)
     void* taginmem = __builtin_wasm_memory_loadtag(0, mem);
     if (taginmem != mem) {
       __builtin_trap();
@@ -4761,11 +4761,11 @@ void dlfree(void* mem) {
     if (!PREACTION(fm)) {
       check_inuse_chunk(fm, p);
       if (RTCHECK(ok_address(fm, p) && ok_inuse(p))) {
-#if defined(__WASI_DLMALLOC_ENABLE_MEMTAG)
+#if defined(__wasilibc_dlmalloc_enable_memtag)
         p= __builtin_wasm_memory_copytag(0, p, NULL);
 #endif
         size_t psize = chunksize(p);
-#if defined(__WASI_DLMALLOC_ENABLE_MEMTAG)
+#if defined(__wasilibc_dlmalloc_enable_memtag)
         mem = __builtin_wasm_memory_copytag(0, mem, NULL);
         __builtin_wasm_memory_storetag(0, mem, psize - 16u);
 #endif
@@ -4865,7 +4865,7 @@ void* dlcalloc(size_t n_elements, size_t elem_size) {
         (req / n_elements != elem_size))
       req = MAX_SIZE_T; /* force downstream failure on overflow */
   }
-#if defined(__WASI_DLMALLOC_ENABLE_MEMTAG)
+#if defined(__wasilibc_dlmalloc_enable_memtag)
   mem = dlmalloc_common_internal(req, 1);
 #else
   mem = dlmalloc(req);
@@ -4976,7 +4976,7 @@ static void* internal_memalign(mstate m, size_t alignment, size_t bytes) {
   else {
     size_t nb = request2size(bytes);
     size_t req = nb + alignment + MIN_CHUNK_SIZE - CHUNK_OVERHEAD;
-#if defined(__WASI_DLMALLOC_ENABLE_MEMTAG)
+#if defined(__wasilibc_dlmalloc_enable_memtag)
     mem = dlmalloc_common_internal(req, 2);
 #else
     mem = internal_malloc(m, req);
@@ -5030,7 +5030,7 @@ static void* internal_memalign(mstate m, size_t alignment, size_t bytes) {
       assert (chunksize(p) >= nb);
       assert(((size_t)mem & (alignment - 1)) == 0);
       check_inuse_chunk(m, p);
-#if defined(__WASI_DLMALLOC_ENABLE_MEMTAG)
+#if defined(__wasilibc_dlmalloc_enable_memtag)
       mem = __builtin_wasm_memory_randomstoretag(0, mem ,chunksize(p)-16u);
 #endif
       POSTACTION(m);
@@ -5322,7 +5322,7 @@ void* dlrealloc(void* oldmem, size_t bytes) {
   }
 #endif /* REALLOC_ZERO_BYTES_FREES */
   else {
-#if defined(__WASI_DLMALLOC_ENABLE_MEMTAG)
+#if defined(__wasilibc_dlmalloc_enable_memtag)
     void* oldmemtag = __builtin_wasm_memory_loadtag(0, oldmem);
     if (oldmemtag != oldmem) {
       __builtin_trap();
@@ -5342,7 +5342,7 @@ void* dlrealloc(void* oldmem, size_t bytes) {
     }
 #endif /* FOOTERS */
     if (!PREACTION(m)) {
-#ifndef __WASI_DLMALLOC_ENABLE_MEMTAG
+#ifndef __wasilibc_dlmalloc_enable_memtag
       mchunkptr newp = try_realloc_chunk(m, oldp, nb, 1);
       POSTACTION(m);
       if (newp != 0) {
@@ -5354,7 +5354,7 @@ void* dlrealloc(void* oldmem, size_t bytes) {
       {
         mem = internal_malloc(m, bytes);
         if (mem != 0) {
-#ifdef __WASI_DLMALLOC_ENABLE_MEMTAG
+#ifdef __wasilibc_dlmalloc_enable_memtag
           mchunkptr untaggedoldp = __builtin_wasm_memory_copytag(0, oldp, NULL);
           size_t oc = chunksize(untaggedoldp) - overhead_for(untaggedoldp);
           oc -= 16;
@@ -5374,7 +5374,7 @@ void* dlrealloc(void* oldmem, size_t bytes) {
 
 void* dlrealloc_in_place(void* oldmem, size_t bytes) {
   void* mem = 0;
-#ifndef __WASI_DLMALLOC_ENABLE_MEMTAG
+#ifndef __wasilibc_dlmalloc_enable_memtag
   if (oldmem != 0) {
     if (bytes >= MAX_REQUEST) {
       MALLOC_FAILURE_ACTION;
@@ -5530,7 +5530,7 @@ int dlmallopt(int param_number, int value) {
 
 size_t dlmalloc_usable_size(void* mem) {
   if (mem != 0) {
-#if defined(__WASI_DLMALLOC_ENABLE_MEMTAG)
+#if defined(__wasilibc_dlmalloc_enable_memtag)
     void *taginmem = __builtin_wasm_memory_loadtag(0, mem);
     if (mem != taginmem) {
       __builtin_trap();
