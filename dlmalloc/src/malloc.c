@@ -4734,6 +4734,11 @@ void* dlmalloc(size_t bytes) {
 
 /* ---------------------------- free --------------------------- */
 
+#if defined(__wasilibc_dlmalloc_enable_memtag)
+extern void* const pesudo_stderr __asm__("stderr");
+extern int pesudo_fprintf(void *restrict f, const char *restrict fmt, ...) __asm__("fprintf");
+#endif
+
 void dlfree(void* mem) {
   /*
      Consolidate freed chunks with preceeding or succeeding bordering
@@ -4745,6 +4750,8 @@ void dlfree(void* mem) {
 #if defined(__wasilibc_dlmalloc_enable_memtag)
     void* taginmem = __builtin_wasm_memory_loadtag(0, mem);
     if (taginmem != mem) {
+      pesudo_fprintf(pesudo_stderr,"void dlfree(void* mem) detects a color mismatch in WebAssembly memory tagging: you attempt to release %p, expected: %p.\n"
+      		"This is an incorrect deallocation, such as a double-free.\n", mem, taginmem);
       __builtin_trap();
     }
 #endif
@@ -5325,6 +5332,8 @@ void* dlrealloc(void* oldmem, size_t bytes) {
 #if defined(__wasilibc_dlmalloc_enable_memtag)
     void* oldmemtag = __builtin_wasm_memory_loadtag(0, oldmem);
     if (oldmemtag != oldmem) {
+      pesudo_fprintf(pesudo_stderr,"void* dlrealloc(void* oldmem, size_t bytes) detects a color mismatch in WebAssembly memory tagging: you attempt to reallocate at %p, expected: %p.\n"
+      		"This is an incorrect reallocation.\n", oldmem, oldmemtag);
       __builtin_trap();
     }
     void* oldmemtemp = oldmem;
@@ -5533,6 +5542,8 @@ size_t dlmalloc_usable_size(void* mem) {
 #if defined(__wasilibc_dlmalloc_enable_memtag)
     void *taginmem = __builtin_wasm_memory_loadtag(0, mem);
     if (mem != taginmem) {
+      pesudo_fprintf(pesudo_stderr,"void dlmalloc_usable_size(void* mem) detects a color mismatch in WebAssembly memory tagging: you attempt to know the size of %p, expected: %p.\n",
+      	mem, taginmem);
       __builtin_trap();
     }
     mem = __builtin_wasm_memory_copytag(0, mem, NULL);
