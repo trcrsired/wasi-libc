@@ -4922,6 +4922,10 @@ static mchunkptr try_realloc_chunk(mstate m, mchunkptr p, size_t nb, [[maybe_unu
       if (oldsize + dvs >= nb) {
         size_t dsize = oldsize + dvs - nb;
         if (dsize >= MIN_CHUNK_SIZE) {
+#ifdef __wasilibc_dlmalloc_enable_memtag
+          void* oldtop = chunk_plus_offset(oldmemptr, oldsize-CHUNK_OVERHEAD);
+          __builtin_wasm_memory_storetag(0, oldtop, nb-oldsize);
+#endif
           mchunkptr r = chunk_plus_offset(p, nb);
           mchunkptr n = chunk_plus_offset(r, dsize);
           set_inuse(m, p, nb);
@@ -4932,6 +4936,10 @@ static mchunkptr try_realloc_chunk(mstate m, mchunkptr p, size_t nb, [[maybe_unu
         }
         else { /* exhaust dv */
           size_t newsize = oldsize + dvs;
+#ifdef __wasilibc_dlmalloc_enable_memtag
+          void* oldtop = chunk_plus_offset(oldmemptr, oldsize-CHUNK_OVERHEAD);
+          __builtin_wasm_memory_storetag(0, oldtop, dvs);
+#endif
           set_inuse(m, p, newsize);
           m->dvsize = 0;
           m->dv = 0;
