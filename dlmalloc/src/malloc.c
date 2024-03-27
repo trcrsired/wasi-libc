@@ -4702,16 +4702,19 @@ static void* dlmalloc_common_internal(size_t bytes, int flag) {
   postaction:
 #if defined(__wasilibc_dlmalloc_enable_memtag)
     if (flag != 2){
+      mchunkptr p  = mem2chunk(mem);
+      size_t usablesize = chunksize(p)-CHUNK_OVERHEAD;
       if (flag == 1) {
-        mem = __builtin_wasm_memory_randomstoreztag(0, mem, nb-CHUNK_OVERHEAD);
+        mem = __builtin_wasm_memory_randomstoreztag(0, mem, usablesize);
       }
       else {
-        mem = __builtin_wasm_memory_randomstoretag(0, mem, nb-CHUNK_OVERHEAD);
+        mem = __builtin_wasm_memory_randomstoretag(0, mem, usablesize);
       }
     }
 #else
     if (flag == 1) {
-      memset(mem, 0, nb);
+      mchunkptr p  = mem2chunk(mem);
+      memset(mem, 0, chunksize(p)-CHUNK_OVERHEAD);
     }
 #endif
     POSTACTION(gm);
