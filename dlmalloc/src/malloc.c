@@ -4565,6 +4565,11 @@ static void* tmalloc_small(mstate m, size_t nb) {
 static void try_init_allocator(void);
 #endif
 
+#if defined(__wasilibc_dlmalloc_enable_memtag) && !defined(__wasilibc_dlmalloc_memtag_noverbose)
+extern void* const pesudo_stderr __asm__("stderr");
+extern int pesudo_fprintf(void *restrict f, const char *restrict fmt, ...) __asm__("fprintf");
+#endif
+
 static void* dlmalloc_common_internal(size_t bytes, int flag) {
   /*
      Basic algorithm:
@@ -4730,11 +4735,6 @@ void* dlmalloc(size_t bytes) {
 
 /* ---------------------------- free --------------------------- */
 
-#if defined(__wasilibc_dlmalloc_enable_memtag)
-extern void* const pesudo_stderr __asm__("stderr");
-extern int pesudo_fprintf(void *restrict f, const char *restrict fmt, ...) __asm__("fprintf");
-#endif
-
 void dlfree(void* mem) {
   /*
      Consolidate freed chunks with preceeding or succeeding bordering
@@ -4746,8 +4746,10 @@ void dlfree(void* mem) {
 #if defined(__wasilibc_dlmalloc_enable_memtag)
     void* taginmem = __builtin_wasm_memory_loadtag(0, mem);
     if (taginmem != mem) {
+#ifndef __wasilibc_dlmalloc_memtag_noverbose
       pesudo_fprintf(pesudo_stderr,"%s detects a color mismatch in WebAssembly memory tagging: you attempt to release %p, expected: %p.\n"
       		"This is an incorrect deallocation, such as a double-free.\n", __PRETTY_FUNCTION__, mem, taginmem);
+#endif
       __builtin_trap();
     }
 #endif
@@ -4862,15 +4864,23 @@ void dlfree(void* mem) {
 void* dlcalloc(size_t n_elements, size_t elem_size) {
   void* mem;
   size_t req = 0;
+#if defined(__wasilibc_dlmalloc_enable_memtag)
+  if(__builtin_mul_overflow(n_elements, elem_size, &req))
+  {
+#ifndef __wasilibc_dlmalloc_memtag_noverbose
+    pesudo_fprintf(pesudo_stderr,"%s detects a calloc overflow mismatch in WebAssembly memory tagging: you attempt to calloc(%zu, %zu).\n",
+      n_elements, elem_size);
+#endif
+    __builtin_trap();
+  }
+  mem = dlmalloc_common_internal(req, 1);
+#else
   if (n_elements != 0) {
     req = n_elements * elem_size;
     if (((n_elements | elem_size) & ~(size_t)0xffff) &&
         (req / n_elements != elem_size))
       req = MAX_SIZE_T; /* force downstream failure on overflow */
   }
-#if defined(__wasilibc_dlmalloc_enable_memtag)
-  mem = dlmalloc_common_internal(req, 1);
-#else
   mem = dlmalloc(req);
   if (mem != 0 && calloc_must_clear(mem2chunk(mem)))
     memset(mem, 0, req);
@@ -5350,8 +5360,10 @@ void* dlrealloc(void* oldmem, size_t bytes) {
 #if defined(__wasilibc_dlmalloc_enable_memtag)
     void* oldmemtag = __builtin_wasm_memory_loadtag(0, oldmem);
     if (oldmemtag != oldmem) {
+#ifndef __wasilibc_dlmalloc_memtag_noverbose
       pesudo_fprintf(pesudo_stderr,"%s detects a color mismatch in WebAssembly memory tagging: you attempt to reallocate at %p, expected: %p.\n"
       		"This is an incorrect reallocation.\n", __PRETTY_FUNCTION__, oldmem, oldmemtag);
+#endif
       __builtin_trap();
     }
     oldmem = __builtin_wasm_memory_copytag(0, oldmem, NULL);
@@ -5399,8 +5411,10 @@ void* dlrealloc_in_place(void* oldmem, size_t bytes) {
 #if defined(__wasilibc_dlmalloc_enable_memtag)
       void* oldmemtag = __builtin_wasm_memory_loadtag(0, oldmem);
       if (oldmemtag != oldmem) {
+#ifndef __wasilibc_dlmalloc_memtag_noverbose
         pesudo_fprintf(pesudo_stderr,"%s detects a color mismatch in WebAssembly memory tagging: you attempt to reallocate at %p, expected: %p.\n"
             "This is an incorrect reallocation.\n", __PRETTY_FUNCTION__, oldmem, oldmemtag);
+#endif
         __builtin_trap();
       }
       oldmem = __builtin_wasm_memory_copytag(0, oldmem, NULL);
@@ -5557,8 +5571,10 @@ size_t dlmalloc_usable_size(void* mem) {
 #if defined(__wasilibc_dlmalloc_enable_memtag)
     void *taginmem = __builtin_wasm_memory_loadtag(0, mem);
     if (mem != taginmem) {
+#ifndef __wasilibc_dlmalloc_memtag_noverbose
       pesudo_fprintf(pesudo_stderr,"void dlmalloc_usable_size(void* mem) detects a color mismatch in WebAssembly memory tagging: you attempt to know the size of %p, expected: %p.\n",
       	mem, taginmem);
+#endif
       __builtin_trap();
     }
     mem = __builtin_wasm_memory_copytag(0, mem, NULL);
@@ -5930,8 +5946,10 @@ void* mspace_realloc(mspace msp, void* oldmem, size_t bytes) {
 #if defined(__wasilibc_dlmalloc_enable_memtag)
     void* oldmemtag = __builtin_wasm_memory_loadtag(0, oldmem);
     if (oldmemtag != oldmem) {
+#ifndef __wasilibc_dlmalloc_memtag_noverbose
       pesudo_fprintf(pesudo_stderr,"%s detects a color mismatch in WebAssembly memory tagging: you attempt to reallocate at %p, expected: %p.\n"
       		"This is an incorrect reallocation.\n", __PRETTY_FUNCTION__, oldmem, oldmemtag);
+#endif
       __builtin_trap();
     }
     oldmem = __builtin_wasm_memory_copytag(0, oldmem, NULL);
@@ -5978,8 +5996,10 @@ void* mspace_realloc_in_place(mspace msp, void* oldmem, size_t bytes) {
 #if defined(__wasilibc_dlmalloc_enable_memtag)
       void* oldmemtag = __builtin_wasm_memory_loadtag(0, oldmem);
       if (oldmemtag != oldmem) {
+#ifndef __wasilibc_dlmalloc_memtag_noverbose
         pesudo_fprintf(pesudo_stderr,"%s detects a color mismatch in WebAssembly memory tagging: you attempt to reallocate at %p, expected: %p.\n"
             "This is an incorrect reallocation.\n", __PRETTY_FUNCTION__, oldmem, oldmemtag);
+#endif
         __builtin_trap();
       }
       oldmem = __builtin_wasm_memory_copytag(0, oldmem, NULL);

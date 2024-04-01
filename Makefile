@@ -26,6 +26,7 @@ OBJDIR ?= build/$(TARGET_TRIPLE)
 # 64 bit wasm?
 WASM64 ?= no
 MEMTAG ?= no
+MEMTAG_NOVERBOSE ?= no
 # The directory where we store files and tools for generating WASIp2 bindings
 BINDING_WORK_DIR ?= build/bindings
 # URL from which to retrieve the WIT files used to generate the WASIp2 bindings
@@ -408,6 +409,10 @@ endif
 
 ifeq ($(MEMTAG), yes)
 MEMTAGCFLAGS += -D__wasilibc_dlmalloc_enable_memtag
+endif
+
+ifeq ($(MEMTAG_NOVERBOSE), yes)
+MEMTAGCFLAGS += -D__wasilibc_dlmalloc_memtag_noverbose
 endif
 
 # Expose the public headers to the implementation. We use `-isystem` for
