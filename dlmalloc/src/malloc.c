@@ -5444,6 +5444,15 @@ void* dlrealloc_in_place(void* oldmem, size_t bytes) {
 }
 
 void* dlmemalign(size_t alignment, size_t bytes) {
+#if defined(__wasilibc_dlmalloc_enable_memtag)
+  if (!(alignment && !(alignment & (alignment - 1))))
+  {
+#ifndef __wasilibc_dlmalloc_memtag_noverbose
+        pesudo_fprintf(pesudo_stderr,"%s detects an incorrect alignment in WebAssembly memory tagging. alignment must be power of 2. dlmemalign(%zu, %zu)\n", __PRETTY_FUNCTION__, alignment, bytes);
+#endif
+        __builtin_trap();
+  }
+#endif
   if (alignment <= MALLOC_ALIGNMENT) {
     return dlmalloc(bytes);
   }
