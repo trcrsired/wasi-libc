@@ -4893,11 +4893,7 @@ void* dlcalloc(size_t n_elements, size_t elem_size) {
 /* ------------ Internal support for realloc, memalign, etc -------------- */
 
 /* Try to realloc; always in-place */
-static mchunkptr try_realloc_chunk(mstate m, mchunkptr p, size_t nb, void*
-#ifdef __wasilibc_dlmalloc_enable_memtag
-oldmemptr
-#endif
-)
+static mchunkptr try_realloc_chunk(mstate m, mchunkptr p, size_t nb, void* oldmemptr)
 {
   mchunkptr newp = 0;
   size_t oldsize = chunksize(p);
