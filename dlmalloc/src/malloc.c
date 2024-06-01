@@ -577,6 +577,12 @@ MAX_RELEASE_CHECK_RATE   default: 4095 unless not HAVE_MMAP
 #endif  /* HAVE_MORECORE */
 #endif  /* DARWIN */
 
+#ifdef __wasilibc_dlmalloc_enable_memtag
+#if !defined(MALLOC_ALIGNMENT) && defined(__wasm32__)
+#define MALLOC_ALIGNMENT ((size_t)16U)
+#endif
+#endif
+
 #ifndef LACKS_SYS_TYPES_H
 #include <sys/types.h>  /* For size_t */
 #endif  /* LACKS_SYS_TYPES_H */
@@ -2208,7 +2214,7 @@ typedef unsigned int flag_t;           /* The type of various bit flag sets */
 #define MCHUNK_SIZE         (sizeof(mchunk))
 
 #if FOOTERS || defined(__wasilibc_dlmalloc_enable_memtag)
-#define CHUNK_OVERHEAD      (TWO_SIZE_T_SIZES)
+#define CHUNK_OVERHEAD      (MALLOC_ALIGNMENT)
 #else /* FOOTERS */
 #define CHUNK_OVERHEAD      (SIZE_T_SIZE)
 #endif /* FOOTERS */
