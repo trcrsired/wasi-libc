@@ -2211,10 +2211,16 @@ typedef unsigned int flag_t;           /* The type of various bit flag sets */
 
 /* ------------------- Chunks sizes and alignments ----------------------- */
 
+#if defined(__wasilibc_dlmalloc_enable_memtag) && defined(__wasm32__)
+#define MCHUNK_SIZE         (sizeof(mchunk)*2)
+#else
 #define MCHUNK_SIZE         (sizeof(mchunk))
+#endif
 
-#if FOOTERS || defined(__wasilibc_dlmalloc_enable_memtag)
+#if defined(__wasilibc_dlmalloc_enable_memtag)
 #define CHUNK_OVERHEAD      (MALLOC_ALIGNMENT)
+#elif FOOTERS
+#define CHUNK_OVERHEAD      (TWO_SIZE_T_SIZES)
 #else /* FOOTERS */
 #define CHUNK_OVERHEAD      (SIZE_T_SIZE)
 #endif /* FOOTERS */
