@@ -4722,10 +4722,10 @@ static void* dlmalloc_common_internal(size_t bytes, int flag) {
       mchunkptr p  = mem2chunk(mem);
       size_t usablesize = chunksize(p)-CHUNK_OVERHEAD;
       if (flag == 1) {
-        mem = __builtin_wasm_memory_randomstoreztag(0, mem, usablesize);
+        mem = __builtin_wasm_memtag_randomstorez(0, mem, usablesize);
       }
       else {
-        mem = __builtin_wasm_memory_randomstoretag(0, mem, usablesize);
+        mem = __builtin_wasm_memtag_randomstore(0, mem, usablesize);
       }
     }
 #else
@@ -4756,7 +4756,7 @@ void dlfree(void* mem) {
 
   if (mem != 0) {
 #if defined(__wasilibc_dlmalloc_enable_memtag)
-    void* taginmem = __builtin_wasm_memory_loadtag(0, mem);
+    void* taginmem = __builtin_wasm_memtag_load(0, mem);
     if (taginmem != mem) {
 #ifndef __wasilibc_dlmalloc_memtag_noverbose
       pesudo_fprintf(pesudo_stderr,"%s detects a color mismatch in WebAssembly memory tagging: you attempt to release %p, expected: %p.\n"
@@ -4779,12 +4779,12 @@ void dlfree(void* mem) {
       check_inuse_chunk(fm, p);
       if (RTCHECK(ok_address(fm, p) && ok_inuse(p))) {
 #if defined(__wasilibc_dlmalloc_enable_memtag)
-        p= __builtin_wasm_memory_copytag(0, p, NULL);
+        p= __builtin_wasm_memtag_copy(0, p, NULL);
 #endif
         size_t psize = chunksize(p);
 #if defined(__wasilibc_dlmalloc_enable_memtag)
-        mem = __builtin_wasm_memory_copytag(0, mem, NULL);
-        __builtin_wasm_memory_storetag(0, mem, psize - CHUNK_OVERHEAD);
+        mem = __builtin_wasm_memtag_copy(0, mem, NULL);
+        __builtin_wasm_memtag_store(0, mem, psize - CHUNK_OVERHEAD);
 #endif
         mchunkptr next = chunk_plus_offset(p, psize);
         if (!pinuse(p)) {
@@ -4917,7 +4917,7 @@ static mchunkptr try_realloc_chunk(mstate m, mchunkptr p, size_t nb, void* oldme
       if (rsize >= MIN_CHUNK_SIZE) {      /* split off remainder */
         mchunkptr r = chunk_plus_offset(p, nb);
 #ifdef __wasilibc_dlmalloc_enable_memtag
-        __builtin_wasm_memory_storetag(0, r, rsize);
+        __builtin_wasm_memtag_store(0, r, rsize);
 #endif
         set_inuse(m, p, nb);
         set_inuse(m, r, rsize);
@@ -4933,7 +4933,7 @@ static mchunkptr try_realloc_chunk(mstate m, mchunkptr p, size_t nb, void* oldme
         mchunkptr newtop = chunk_plus_offset(p, nb);
 #ifdef __wasilibc_dlmalloc_enable_memtag
         void* oldtop = chunk_plus_offset(oldmemptr, oldsize-CHUNK_OVERHEAD);
-        __builtin_wasm_memory_storetag(0, oldtop, nb-oldsize);
+        __builtin_wasm_memtag_store(0, oldtop, nb-oldsize);
 #endif
         set_inuse(m, p, nb);
         newtop->head = newtopsize |PINUSE_BIT;
@@ -4949,7 +4949,7 @@ static mchunkptr try_realloc_chunk(mstate m, mchunkptr p, size_t nb, void* oldme
         if (dsize >= MIN_CHUNK_SIZE) {
 #ifdef __wasilibc_dlmalloc_enable_memtag
           void* oldtop = chunk_plus_offset(oldmemptr, oldsize-CHUNK_OVERHEAD);
-          __builtin_wasm_memory_storetag(0, oldtop, nb-oldsize);
+          __builtin_wasm_memtag_store(0, oldtop, nb-oldsize);
 #endif
           mchunkptr r = chunk_plus_offset(p, nb);
           mchunkptr n = chunk_plus_offset(r, dsize);
@@ -4963,7 +4963,7 @@ static mchunkptr try_realloc_chunk(mstate m, mchunkptr p, size_t nb, void* oldme
           size_t newsize = oldsize + dvs;
 #ifdef __wasilibc_dlmalloc_enable_memtag
           void* oldtop = chunk_plus_offset(oldmemptr, oldsize-CHUNK_OVERHEAD);
-          __builtin_wasm_memory_storetag(0, oldtop, dvs);
+          __builtin_wasm_memtag_store(0, oldtop, dvs);
 #endif
           set_inuse(m, p, newsize);
           m->dvsize = 0;
@@ -4980,7 +4980,7 @@ static mchunkptr try_realloc_chunk(mstate m, mchunkptr p, size_t nb, void* oldme
         if (rsize < MIN_CHUNK_SIZE) {
 #ifdef __wasilibc_dlmalloc_enable_memtag
           void* oldtop = chunk_plus_offset(oldmemptr, oldsize-CHUNK_OVERHEAD);
-          __builtin_wasm_memory_storetag(0, oldtop, nextsize);
+          __builtin_wasm_memtag_store(0, oldtop, nextsize);
 #endif
           size_t newsize = oldsize + nextsize;
           set_inuse(m, p, newsize);
@@ -4988,7 +4988,7 @@ static mchunkptr try_realloc_chunk(mstate m, mchunkptr p, size_t nb, void* oldme
         else {
 #ifdef __wasilibc_dlmalloc_enable_memtag
           void* oldtop = chunk_plus_offset(oldmemptr, oldsize-CHUNK_OVERHEAD);
-          __builtin_wasm_memory_storetag(0, oldtop, nb-oldsize);
+          __builtin_wasm_memtag_store(0, oldtop, nb-oldsize);
 #endif
           mchunkptr r = chunk_plus_offset(p, nb);
           set_inuse(m, p, nb);
@@ -5077,7 +5077,7 @@ static void* internal_memalign(mstate m, size_t alignment, size_t bytes) {
       assert(((size_t)mem & (alignment - 1)) == 0);
       check_inuse_chunk(m, p);
 #if defined(__wasilibc_dlmalloc_enable_memtag)
-      mem = __builtin_wasm_memory_randomstoretag(0, mem ,chunksize(p)-CHUNK_OVERHEAD);
+      mem = __builtin_wasm_memtag_randomstore(0, mem ,chunksize(p)-CHUNK_OVERHEAD);
 #endif
       POSTACTION(m);
     }
@@ -5372,7 +5372,7 @@ void* dlrealloc(void* oldmem, size_t bytes) {
   else {
     void* oldmemtemp = oldmem;
 #if defined(__wasilibc_dlmalloc_enable_memtag)
-    void* oldmemtag = __builtin_wasm_memory_loadtag(0, oldmem);
+    void* oldmemtag = __builtin_wasm_memtag_load(0, oldmem);
     if (oldmemtag != oldmem) {
 #ifndef __wasilibc_dlmalloc_memtag_noverbose
       pesudo_fprintf(pesudo_stderr,"%s detects a color mismatch in WebAssembly memory tagging: you attempt to reallocate at %p, expected: %p.\n"
@@ -5380,7 +5380,7 @@ void* dlrealloc(void* oldmem, size_t bytes) {
 #endif
       __builtin_trap();
     }
-    oldmem = __builtin_wasm_memory_copytag(0, oldmem, NULL);
+    oldmem = __builtin_wasm_memtag_copy(0, oldmem, NULL);
 #endif
     size_t nb = request2size(bytes);
     mchunkptr oldp = mem2chunk(oldmem);
@@ -5423,7 +5423,7 @@ void* dlrealloc_in_place(void* oldmem, size_t bytes) {
     else {
     void* oldmemtemp = oldmem;
 #if defined(__wasilibc_dlmalloc_enable_memtag)
-      void* oldmemtag = __builtin_wasm_memory_loadtag(0, oldmem);
+      void* oldmemtag = __builtin_wasm_memtag_load(0, oldmem);
       if (oldmemtag != oldmem) {
 #ifndef __wasilibc_dlmalloc_memtag_noverbose
         pesudo_fprintf(pesudo_stderr,"%s detects a color mismatch in WebAssembly memory tagging: you attempt to reallocate at %p, expected: %p.\n"
@@ -5431,7 +5431,7 @@ void* dlrealloc_in_place(void* oldmem, size_t bytes) {
 #endif
         __builtin_trap();
       }
-      oldmem = __builtin_wasm_memory_copytag(0, oldmem, NULL);
+      oldmem = __builtin_wasm_memtag_copy(0, oldmem, NULL);
 #endif
       size_t nb = request2size(bytes);
       mchunkptr oldp = mem2chunk(oldmem);
@@ -5592,7 +5592,7 @@ int dlmallopt(int param_number, int value) {
 size_t dlmalloc_usable_size(void* mem) {
   if (mem != 0) {
 #if defined(__wasilibc_dlmalloc_enable_memtag)
-    void *taginmem = __builtin_wasm_memory_loadtag(0, mem);
+    void *taginmem = __builtin_wasm_memtag_load(0, mem);
     if (mem != taginmem) {
 #ifndef __wasilibc_dlmalloc_memtag_noverbose
       pesudo_fprintf(pesudo_stderr,"void dlmalloc_usable_size(void* mem) detects a color mismatch in WebAssembly memory tagging: you attempt to know the size of %p, expected: %p.\n",
@@ -5600,7 +5600,7 @@ size_t dlmalloc_usable_size(void* mem) {
 #endif
       __builtin_trap();
     }
-    mem = __builtin_wasm_memory_copytag(0, mem, NULL);
+    mem = __builtin_wasm_memtag_copy(0, mem, NULL);
 #endif
     mchunkptr p = mem2chunk(mem);
     if (is_inuse(p))
@@ -5967,7 +5967,7 @@ void* mspace_realloc(mspace msp, void* oldmem, size_t bytes) {
   else {
     void* oldmemtemp = oldmem;
 #if defined(__wasilibc_dlmalloc_enable_memtag)
-    void* oldmemtag = __builtin_wasm_memory_loadtag(0, oldmem);
+    void* oldmemtag = __builtin_wasm_memtag_load(0, oldmem);
     if (oldmemtag != oldmem) {
 #ifndef __wasilibc_dlmalloc_memtag_noverbose
       pesudo_fprintf(pesudo_stderr,"%s detects a color mismatch in WebAssembly memory tagging: you attempt to reallocate at %p, expected: %p.\n"
@@ -5975,7 +5975,7 @@ void* mspace_realloc(mspace msp, void* oldmem, size_t bytes) {
 #endif
       __builtin_trap();
     }
-    oldmem = __builtin_wasm_memory_copytag(0, oldmem, NULL);
+    oldmem = __builtin_wasm_memtag_copy(0, oldmem, NULL);
 #endif
     size_t nb = request2size(bytes);
     mchunkptr oldp = mem2chunk(oldmem);
@@ -6017,7 +6017,7 @@ void* mspace_realloc_in_place(mspace msp, void* oldmem, size_t bytes) {
     else {
       void* oldmemtemp = oldmem;
 #if defined(__wasilibc_dlmalloc_enable_memtag)
-      void* oldmemtag = __builtin_wasm_memory_loadtag(0, oldmem);
+      void* oldmemtag = __builtin_wasm_memtag_load(0, oldmem);
       if (oldmemtag != oldmem) {
 #ifndef __wasilibc_dlmalloc_memtag_noverbose
         pesudo_fprintf(pesudo_stderr,"%s detects a color mismatch in WebAssembly memory tagging: you attempt to reallocate at %p, expected: %p.\n"
@@ -6025,7 +6025,7 @@ void* mspace_realloc_in_place(mspace msp, void* oldmem, size_t bytes) {
 #endif
         __builtin_trap();
       }
-      oldmem = __builtin_wasm_memory_copytag(0, oldmem, NULL);
+      oldmem = __builtin_wasm_memtag_copy(0, oldmem, NULL);
 #endif
       size_t nb = request2size(bytes);
       mchunkptr oldp = mem2chunk(oldmem);
