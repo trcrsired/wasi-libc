@@ -436,7 +436,9 @@ void __secs_to_zone(long long t, int local, int *isdst, int *offset, long *oppof
 	// Minimalist implementation for now.
 	*isdst = 0;
 	*offset = 0;
-	*oppoff = 0;
+	if (oppoff) {
+		*oppoff = 0;
+	}
 	*zonename = __utc;
 }
 #endif
