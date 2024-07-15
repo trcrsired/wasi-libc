@@ -29,6 +29,16 @@ OBJDIR ?= build/$(TARGET_TRIPLE)
 WASM64 ?= no
 MEMTAG ?= no
 MEMTAG_NOVERBOSE ?= no
+
+# LTO; no, full, or thin
+# Note: thin LTO here is just for experimentation. It has known issues:
+# - https://github.com/llvm/llvm-project/issues/91700
+# - https://github.com/llvm/llvm-project/issues/91711
+LTO ?= no
+ifneq ($(LTO),no)
+CLANG_VERSION ?= $(shell ${CC} -dumpversion)
+override OBJDIR := $(OBJDIR)/llvm-lto/$(CLANG_VERSION)
+endif
 # The directory where we store files and tools for generating WASIp2 bindings
 BINDING_WORK_DIR ?= build/bindings
 # URL from which to retrieve the WIT files used to generate the WASIp2 bindings
@@ -273,6 +283,11 @@ LIBC_TOP_HALF_MUSL_SOURCES = \
                  $(wildcard $(LIBC_TOP_HALF_MUSL_SRC_DIR)/complex/*.c)) \
     $(wildcard $(LIBC_TOP_HALF_MUSL_SRC_DIR)/crypt/*.c)
 
+LIBC_NONLTO_SOURCES = \
+    $(addprefix $(LIBC_TOP_HALF_MUSL_SRC_DIR)/, \
+        exit/atexit.c \
+    )
+
 ifeq ($(WASI_SNAPSHOT), p2)
 LIBC_TOP_HALF_MUSL_SOURCES += \
     $(addprefix $(LIBC_TOP_HALF_MUSL_SRC_DIR)/, \
@@ -427,6 +442,16 @@ endif
 
 ifeq ($(MEMTAG_NOVERBOSE), yes)
 MEMTAGCFLAGS += -D__wasilibc_dlmalloc_memtag_noverbose
+ifneq ($(LTO),no)
+ifeq ($(LTO),full)
+CFLAGS += -flto=full
+else
+ifeq ($(LTO),thin)
+CFLAGS += -flto=thin
+else
+$(error unknown LTO value: $(LTO))
+endif
+endif
 endif
 
 ifeq ($(WASI_SNAPSHOT), p2)
@@ -485,10 +510,14 @@ LIBWASI_EMULATED_SIGNAL_MUSL_OBJS = $(call objs,$(LIBWASI_EMULATED_SIGNAL_MUSL_S
 LIBDL_OBJS = $(call objs,$(LIBDL_SOURCES))
 LIBSETJMP_OBJS = $(call objs,$(LIBSETJMP_SOURCES))
 LIBC_BOTTOM_HALF_CRT_OBJS = $(call objs,$(LIBC_BOTTOM_HALF_CRT_SOURCES))
+LIBC_NONLTO_OBJS = $(call objs,$(LIBC_NONLTO_SOURCES))
 
 # These variables describe the locations of various files and
 # directories in the generated sysroot tree.
 SYSROOT_LIB := $(SYSROOT)/lib/$(TARGET_TRIPLE)
+ifneq ($(LTO),no)
+override SYSROOT_LIB := $(SYSROOT_LIB)/llvm-lto/$(CLANG_VERSION)
+endif
 SYSROOT_INC = $(SYSROOT)/include/$(TARGET_TRIPLE)
 SYSROOT_SHARE = $(SYSROOT)/share/$(TARGET_TRIPLE)
 
@@ -660,6 +689,8 @@ $(SYSROOT_LIB)/libsetjmp.a: $(LIBSETJMP_OBJS)
 
 $(PIC_OBJS): CFLAGS += -fPIC -fvisibility=default
 
+$(LIBC_NONLTO_OBJS): CFLAGS := $(filter-out -flto% -fno-lto, $(CFLAGS)) -fno-lto
+
 $(MUSL_PRINTSCAN_OBJS): CFLAGS += \
 	    -D__wasilibc_printscan_no_long_double \
 	    -D__wasilibc_printscan_full_support_option="\"add -lc-printscan-long-double to the link command\""
@@ -827,11 +858,13 @@ finish: startup_files libc dummy_libs
 	# The build succeeded! The generated sysroot is in $(SYSROOT).
 	#
 
+ifeq ($(LTO),no)
 # The check for defined and undefined symbols expects there to be a heap
 # alloctor (providing malloc, calloc, free, etc). Skip this step if the build
 # is done without a malloc implementation.
 ifneq ($(MALLOC_IMPL),none)
 finish: check-symbols
+endif
 endif
 
 DEFINED_SYMBOLS = $(SYSROOT_SHARE)/defined-symbols.txt
@@ -893,6 +926,8 @@ check-symbols: startup_files libc
 	@# TODO: Filter out __FLT128_* that are new to clang 18.
 	@# TODO: Filter out __MEMORY_SCOPE_* that are new to clang 18.
 	@# TODO: Filter out __GCC_(CON|DE)STRUCTIVE_SIZE that are new to clang 19.
+	@# TODO: Filter out __STDC_EMBED_* that are new to clang 19.
+	@# TODO: Filter out __*_NORM_MAX__ that are new to clang 19.
 	@# TODO: clang defined __FLT_EVAL_METHOD__ until clang 15, so we force-undefine it
 	@# for older versions.
 	@# TODO: Undefine __wasm_mutable_globals__ and __wasm_sign_ext__, that are new to
@@ -932,6 +967,8 @@ check-symbols: startup_files libc
 	    | grep -v '^#define __FLT128_' \
 	    | grep -v '^#define __MEMORY_SCOPE_' \
 	    | grep -v '^#define __GCC_\(CON\|DE\)STRUCTIVE_SIZE' \
+	    | grep -v '^#define __STDC_EMBED_' \
+	    | grep -v '^#define __\(DBL\|FLT\|LDBL\)_NORM_MAX__' \
 	    | grep -v '^#define NDEBUG' \
 	    | grep -v '^#define __OPTIMIZE__' \
 	    | grep -v '^#define assert' \
