@@ -442,6 +442,8 @@ endif
 
 ifeq ($(MEMTAG_NOVERBOSE), yes)
 MEMTAGCFLAGS += -D__wasilibc_dlmalloc_memtag_noverbose
+endif
+
 ifneq ($(LTO),no)
 ifeq ($(LTO),full)
 CFLAGS += -flto=full
