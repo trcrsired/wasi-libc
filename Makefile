@@ -88,7 +88,7 @@ endif
 
 EXPECTED_TARGET_DIR = expected/${EXPECTED_TARGET_TRIPLE}
 
-BUILTINS_LIB ?= $(shell ${CC} --print-libgcc-file-name)
+BUILTINS_LIB ?= $(shell ${CC} ${CFLAGS} --print-libgcc-file-name)
 
 # These variables describe the locations of various files and directories in
 # the source tree.
@@ -312,12 +312,16 @@ LIBC_TOP_HALF_MUSL_SOURCES += \
         thread/pthread_attr_destroy.c \
         thread/pthread_attr_get.c \
         thread/pthread_attr_init.c \
-        thread/pthread_attr_setstack.c \
         thread/pthread_attr_setdetachstate.c \
+        thread/pthread_attr_setguardsize.c \
+        thread/pthread_attr_setstack.c \
         thread/pthread_attr_setstacksize.c \
         thread/pthread_barrier_destroy.c \
         thread/pthread_barrier_init.c \
         thread/pthread_barrier_wait.c \
+        thread/pthread_barrierattr_destroy.c \
+        thread/pthread_barrierattr_init.c \
+        thread/pthread_barrierattr_setpshared.c \
         thread/pthread_cleanup_push.c \
         thread/pthread_cond_broadcast.c \
         thread/pthread_cond_destroy.c \
