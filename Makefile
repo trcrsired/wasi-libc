@@ -286,6 +286,7 @@ LIBC_TOP_HALF_MUSL_SOURCES = \
 LIBC_NONLTO_SOURCES = \
     $(addprefix $(LIBC_TOP_HALF_MUSL_SRC_DIR)/, \
         exit/atexit.c \
+        setjmp/wasm32/rt.c \
     )
 
 ifeq ($(WASI_SNAPSHOT), p2)
@@ -316,6 +317,7 @@ LIBC_TOP_HALF_MUSL_SOURCES += \
         thread/pthread_attr_setguardsize.c \
         thread/pthread_attr_setstack.c \
         thread/pthread_attr_setstacksize.c \
+        thread/pthread_attr_setschedparam.c \
         thread/pthread_barrier_destroy.c \
         thread/pthread_barrier_init.c \
         thread/pthread_barrier_wait.c \
@@ -323,6 +325,7 @@ LIBC_TOP_HALF_MUSL_SOURCES += \
         thread/pthread_barrierattr_init.c \
         thread/pthread_barrierattr_setpshared.c \
         thread/pthread_cleanup_push.c \
+        thread/pthread_cancel.c \
         thread/pthread_cond_broadcast.c \
         thread/pthread_cond_destroy.c \
         thread/pthread_cond_init.c \
@@ -368,6 +371,7 @@ LIBC_TOP_HALF_MUSL_SOURCES += \
         thread/pthread_rwlockattr_init.c \
         thread/pthread_rwlockattr_setpshared.c \
         thread/pthread_setcancelstate.c \
+        thread/pthread_setcanceltype.c \
         thread/pthread_setspecific.c \
         thread/pthread_self.c \
         thread/pthread_spin_destroy.c \
@@ -646,9 +650,21 @@ PIC_OBJS = \
 # link that using `--whole-archive` rather than pass the object files directly
 # to CC.  This is a workaround for a Windows command line size limitation.  See
 # the `%.a` rule below for details.
-$(SYSROOT_LIB)/%.so: $(OBJDIR)/%.so.a $(BUILTINS_LIB)
-	$(CC) --target=$(TARGET_TRIPLE) -nodefaultlibs -shared --sysroot=$(SYSROOT) \
-	-o $@ -Wl,--whole-archive $< -Wl,--no-whole-archive $(BUILTINS_LIB)
+
+# Note: libc.so is special because it shouldn't link to libc.so.
+# Note: --allow-undefined-file=linker-provided-symbols.txt is
+# a workaround for https://github.com/llvm/llvm-project/issues/103592
+$(SYSROOT_LIB)/libc.so: $(OBJDIR)/libc.so.a $(BUILTINS_LIB)
+	$(CC) $(EXTRA_CFLAGS) --target=${TARGET_TRIPLE} -nodefaultlibs \
+	-shared --sysroot=$(SYSROOT) \
+	-o $@ -Wl,--whole-archive $< -Wl,--no-whole-archive $(BUILTINS_LIB) \
+	-Wl,--allow-undefined-file=linker-provided-symbols.txt
+
+$(SYSROOT_LIB)/%.so: $(OBJDIR)/%.so.a $(SYSROOT_LIB)/libc.so
+	$(CC) $(EXTRA_CFLAGS) --target=${TARGET_TRIPLE} \
+	-shared --sysroot=$(SYSROOT) \
+	-o $@ -Wl,--whole-archive $< -Wl,--no-whole-archive \
+	-Wl,--allow-undefined-file=linker-provided-symbols.txt
 
 $(OBJDIR)/libc.so.a: $(LIBC_SO_OBJS) $(MUSL_PRINTSCAN_LONG_DOUBLE_SO_OBJS)
 
