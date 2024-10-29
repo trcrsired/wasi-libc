@@ -1463,8 +1463,15 @@
 #define PTHREAD_COND_INITIALIZER {{{0}}}
 #define PTHREAD_CREATE_DETACHED 1
 #define PTHREAD_CREATE_JOINABLE 0
+<<<<<<< HEAD
 #define PTHREAD_EXPLICIT_SCHED 1
 #define PTHREAD_INHERIT_SCHED 0
+=======
+#define PTHREAD_DESTRUCTOR_ITERATIONS 4
+#define PTHREAD_EXPLICIT_SCHED 1
+#define PTHREAD_INHERIT_SCHED 0
+#define PTHREAD_KEYS_MAX 128
+>>>>>>> origin/main
 #define PTHREAD_MUTEX_DEFAULT 0
 #define PTHREAD_MUTEX_ERRORCHECK 2
 #define PTHREAD_MUTEX_INITIALIZER {{{0}}}
@@ -1482,6 +1489,10 @@
 #define PTHREAD_RWLOCK_INITIALIZER {{{0}}}
 #define PTHREAD_SCOPE_PROCESS 1
 #define PTHREAD_SCOPE_SYSTEM 0
+<<<<<<< HEAD
+=======
+#define PTHREAD_STACK_MIN 2048
+>>>>>>> origin/main
 #define PTRBITS (sizeof(char *) * 8)
 #define PTRDIFF_MAX INT64_MAX
 #define PTRDIFF_MIN INT64_MIN
@@ -2416,6 +2427,7 @@
 #define _UTIME_H 
 #define _VALUES_H 
 #define _VA_LIST 
+#define _WASI_EMULATED_PTHREAD 
 #define _WCHAR_H 
 #define _WCHAR_T 
 #define _WCTYPE_H 
