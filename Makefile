@@ -830,7 +830,7 @@ $(LIBWASI_EMULATED_PROCESS_CLOCKS_OBJS) $(LIBWASI_EMULATED_PROCESS_CLOCKS_SO_OBJ
 $(LIBWASI_EMULATED_PTHREAD_OBJS) $(LIBWASI_EMULATED_PTHREAD_SO_OBJS): CFLAGS += \
     -I$(LIBC_TOP_HALF_MUSL_SRC_DIR)/include \
     -I$(LIBC_TOP_HALF_MUSL_SRC_DIR)/internal \
-    -I$(LIBC_TOP_HALF_MUSL_DIR)/arch/wasm32 \
+    -I$(LIBC_TOP_HALF_MUSL_DIR)/arch/wasm \
     -D_WASI_EMULATED_PTHREAD
 
 # emmalloc uses a lot of pointer type-punning, which is UB under strict aliasing,
