@@ -464,6 +464,10 @@ CFLAGS += -mthread-model posix -pthread -ftls-model=local-exec
 ASMFLAGS += -matomics
 endif
 
+ifeq ($(WASM64), yes)
+ASMFLAGS += -D__wasm64__=1
+endif
+
 # Include cloudlib's directory to access the structure definition of clockid_t
 CFLAGS += -I$(LIBC_BOTTOM_HALF_CLOUDLIBC_SRC)
 
