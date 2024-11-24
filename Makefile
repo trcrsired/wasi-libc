@@ -396,7 +396,7 @@ LIBC_TOP_HALF_MUSL_SOURCES += \
         thread/sem_timedwait.c \
         thread/sem_trywait.c \
         thread/sem_wait.c \
-        thread/wasm/wasi_thread_start.S \
+        thread/wasm/wasi_thread_start.s \
     )
 endif
 ifeq ($(THREAD_MODEL), single)
@@ -462,10 +462,6 @@ ifeq ($(THREAD_MODEL), posix)
 CFLAGS += -mthread-model posix -pthread -ftls-model=local-exec
 
 ASMFLAGS += -matomics
-endif
-
-ifeq ($(WASM64), yes)
-ASMFLAGS += -D__wasm64__=1
 endif
 
 # Include cloudlib's directory to access the structure definition of clockid_t
