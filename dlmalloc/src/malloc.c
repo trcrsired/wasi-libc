@@ -4779,11 +4779,11 @@ void dlfree(void* mem) {
       check_inuse_chunk(fm, p);
       if (RTCHECK(ok_address(fm, p) && ok_inuse(p))) {
 #if defined(__wasilibc_dlmalloc_enable_memtag)
-        p= __builtin_wasm_memtag_copy(0, p, NULL);
+        p= __builtin_wasm_memtag_untag(0, p);
 #endif
         size_t psize = chunksize(p);
 #if defined(__wasilibc_dlmalloc_enable_memtag)
-        mem = __builtin_wasm_memtag_copy(0, mem, NULL);
+        mem = __builtin_wasm_memtag_untag(0, mem);
         __builtin_wasm_memtag_store(0, mem, psize - CHUNK_OVERHEAD);
 #endif
         mchunkptr next = chunk_plus_offset(p, psize);
@@ -5380,7 +5380,7 @@ void* dlrealloc(void* oldmem, size_t bytes) {
 #endif
       __builtin_trap();
     }
-    oldmem = __builtin_wasm_memtag_copy(0, oldmem, NULL);
+    oldmem = __builtin_wasm_memtag_untag(0, oldmem);
 #endif
     size_t nb = request2size(bytes);
     mchunkptr oldp = mem2chunk(oldmem);
@@ -5431,7 +5431,7 @@ void* dlrealloc_in_place(void* oldmem, size_t bytes) {
 #endif
         __builtin_trap();
       }
-      oldmem = __builtin_wasm_memtag_copy(0, oldmem, NULL);
+      oldmem = __builtin_wasm_memtag_untag(0, oldmem);
 #endif
       size_t nb = request2size(bytes);
       mchunkptr oldp = mem2chunk(oldmem);
@@ -5600,7 +5600,7 @@ size_t dlmalloc_usable_size(void* mem) {
 #endif
       __builtin_trap();
     }
-    mem = __builtin_wasm_memtag_copy(0, mem, NULL);
+    mem = __builtin_wasm_memtag_untag(0, mem);
 #endif
     mchunkptr p = mem2chunk(mem);
     if (is_inuse(p))
@@ -5975,7 +5975,7 @@ void* mspace_realloc(mspace msp, void* oldmem, size_t bytes) {
 #endif
       __builtin_trap();
     }
-    oldmem = __builtin_wasm_memtag_copy(0, oldmem, NULL);
+    oldmem = __builtin_wasm_memtag_untag(0, oldmem);
 #endif
     size_t nb = request2size(bytes);
     mchunkptr oldp = mem2chunk(oldmem);
@@ -6025,7 +6025,7 @@ void* mspace_realloc_in_place(mspace msp, void* oldmem, size_t bytes) {
 #endif
         __builtin_trap();
       }
-      oldmem = __builtin_wasm_memtag_copy(0, oldmem, NULL);
+      oldmem = __builtin_wasm_memtag_untag(0, oldmem);
 #endif
       size_t nb = request2size(bytes);
       mchunkptr oldp = mem2chunk(oldmem);
