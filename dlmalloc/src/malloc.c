@@ -4783,8 +4783,7 @@ void dlfree(void* mem) {
 #endif
         size_t psize = chunksize(p);
 #if defined(__wasilibc_dlmalloc_enable_memtag)
-        mem = __builtin_wasm_memtag_untag(0, mem);
-        __builtin_wasm_memtag_store(0, mem, psize - CHUNK_OVERHEAD);
+        mem = __builtin_wasm_memtag_untagstore(0, mem, psize - CHUNK_OVERHEAD);
 #endif
         mchunkptr next = chunk_plus_offset(p, psize);
         if (!pinuse(p)) {
