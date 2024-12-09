@@ -39,13 +39,6 @@ ifneq ($(LTO),no)
 CLANG_VERSION ?= $(shell ${CC} -dumpversion)
 override OBJDIR := $(OBJDIR)/llvm-lto/$(CLANG_VERSION)
 endif
-# The directory where we store files and tools for generating WASIp2 bindings
-BINDING_WORK_DIR ?= build/bindings
-# URL from which to retrieve the WIT files used to generate the WASIp2 bindings
-WASI_CLI_URL ?= https://github.com/WebAssembly/wasi-cli/archive/refs/tags/v0.2.0.tar.gz
-# URL from which to retrieve the `wit-bindgen` command used to generate the
-# WASIp2 bindings.
-WIT_BINDGEN_URL ?= https://github.com/bytecodealliance/wit-bindgen/releases/download/wit-bindgen-cli-0.17.0/wit-bindgen-v0.17.0-x86_64-linux.tar.gz
 
 # When the length is no larger than this threshold, we consider the
 # overhead of bulk memory opcodes to outweigh the performance benefit,
@@ -557,86 +550,6 @@ endif
 SYSROOT_INC = $(SYSROOT)/include/$(TARGET_TRIPLE)
 SYSROOT_SHARE = $(SYSROOT)/share/$(TARGET_TRIPLE)
 
-# Files from musl's include directory that we don't want to install in the
-# sysroot's include directory.
-MUSL_OMIT_HEADERS :=
-
-# Remove files which aren't headers (we generate alltypes.h below).
-MUSL_OMIT_HEADERS += \
-    "bits/syscall.h.in" \
-    "bits/alltypes.h.in" \
-    "alltypes.h.in"
-
-# Use the compiler's version of these headers.
-MUSL_OMIT_HEADERS += \
-    "stdarg.h" \
-    "stddef.h"
-
-# Use the WASI errno definitions.
-MUSL_OMIT_HEADERS += \
-    "bits/errno.h"
-
-# Remove headers that aren't supported yet or that aren't relevant for WASI.
-MUSL_OMIT_HEADERS += \
-    "sys/procfs.h" \
-    "sys/user.h" \
-    "sys/kd.h" "sys/vt.h" "sys/soundcard.h" "sys/sem.h" \
-    "sys/shm.h" "sys/msg.h" "sys/ipc.h" "sys/ptrace.h" \
-    "sys/statfs.h" \
-    "bits/kd.h" "bits/vt.h" "bits/soundcard.h" "bits/sem.h" \
-    "bits/shm.h" "bits/msg.h" "bits/ipc.h" "bits/ptrace.h" \
-    "bits/statfs.h" \
-    "sys/vfs.h" \
-    "syslog.h" "sys/syslog.h" \
-    "wait.h" "sys/wait.h" \
-    "ucontext.h" "sys/ucontext.h" \
-    "paths.h" \
-    "utmp.h" "utmpx.h" \
-    "lastlog.h" \
-    "sys/acct.h" \
-    "sys/cachectl.h" \
-    "sys/epoll.h" "sys/reboot.h" "sys/swap.h" \
-    "sys/sendfile.h" "sys/inotify.h" \
-    "sys/quota.h" \
-    "sys/klog.h" \
-    "sys/fsuid.h" \
-    "sys/io.h" \
-    "sys/prctl.h" \
-    "sys/mtio.h" \
-    "sys/mount.h" \
-    "sys/fanotify.h" \
-    "sys/personality.h" \
-    "elf.h" "link.h" "bits/link.h" \
-    "scsi/scsi.h" "scsi/scsi_ioctl.h" "scsi/sg.h" \
-    "sys/auxv.h" \
-    "pwd.h" "shadow.h" "grp.h" \
-    "mntent.h" \
-    "resolv.h" \
-    "pty.h" \
-    "ulimit.h" \
-    "sys/xattr.h" \
-    "wordexp.h" \
-    "spawn.h" \
-    "sys/membarrier.h" \
-    "sys/signalfd.h" \
-    "termios.h" \
-    "sys/termios.h" \
-    "bits/termios.h" \
-    "net/if.h" \
-    "net/if_arp.h" \
-    "net/ethernet.h" \
-    "net/route.h" \
-    "netinet/if_ether.h" \
-    "netinet/ether.h" \
-    "sys/timerfd.h" \
-    "libintl.h" \
-    "sys/sysmacros.h" \
-    "aio.h"
-
-ifeq ($(WASI_SNAPSHOT), p1)
-MUSL_OMIT_HEADERS += "netdb.h"
-endif
-
 default: finish
 
 LIBC_SO_OBJS = $(patsubst %.o,%.pic.o,$(filter-out $(MUSL_PRINTSCAN_OBJS),$(LIBC_OBJS)))
@@ -802,7 +715,7 @@ $(OBJDIR)/%.o: %.s $(INCLUDE_DIRS)
 $(DLMALLOC_OBJS) $(DLMALLOC_SO_OBJS): CFLAGS += \
     -I$(DLMALLOC_INC) $(MEMTAGCFLAGS)
 
-startup_files $(LIBC_BOTTOM_HALF_ALL_OBJS) $(LIBC_BOTTOM_HALF_ALL_SO_OBJS): CFLAGS += \
+$(STARTUP_FILES) $(LIBC_BOTTOM_HALF_ALL_OBJS) $(LIBC_BOTTOM_HALF_ALL_SO_OBJS): CFLAGS += \
     -I$(LIBC_BOTTOM_HALF_HEADERS_PRIVATE) \
     -I$(LIBC_BOTTOM_HALF_CLOUDLIBC_SRC_INC) \
     -I$(LIBC_BOTTOM_HALF_CLOUDLIBC_SRC) \
@@ -875,16 +788,23 @@ ifeq ($(WASI_SNAPSHOT), p2)
 		> "$(SYSROOT_INC)/__wasi_snapshot.h"
 endif
 
+	SYSROOT_INC=$(SYSROOT_INC) TARGET_TRIPLE=$(TARGET_TRIPLE) \
+	    $(CURDIR)/scripts/install-include-headers.sh
 	# Stamp the include installation.
 	@mkdir -p $(@D)
 	touch $@
 
-startup_files: $(INCLUDE_DIRS) $(LIBC_BOTTOM_HALF_CRT_OBJS)
+STARTUP_FILES := $(OBJDIR)/copy-startup-files.stamp
+$(STARTUP_FILES): $(INCLUDE_DIRS) $(LIBC_BOTTOM_HALF_CRT_OBJS) 
 	#
-	# Install the startup files (crt1.o etc).
+	# Install the startup files (crt1.o, etc.).
 	#
-	mkdir -p "$(SYSROOT_LIB)" && \
+	mkdir -p "$(SYSROOT_LIB)"
 	cp $(LIBC_BOTTOM_HALF_CRT_OBJS) "$(SYSROOT_LIB)"
+
+	# Stamp the startup file installation.
+	@mkdir -p $(@D)
+	touch $@
 
 # TODO: As of this writing, wasi_thread_start.s uses non-position-independent
 # code, and I'm not sure how to make it position-independent.  Once we've done
@@ -937,7 +857,7 @@ $(DUMMY_LIBS):
 	    $(AR) crs "$$lib"; \
 	done
 
-finish: startup_files libc $(DUMMY_LIBS)
+finish: $(STARTUP_FILES) libc $(DUMMY_LIBS)
 	#
 	# The build succeeded! The generated sysroot is in $(SYSROOT).
 	#
@@ -951,10 +871,16 @@ finish: check-symbols
 endif
 endif
 
+install: finish
+	mkdir -p "$(INSTALL_DIR)"
+	cp -r "$(SYSROOT)/lib" "$(SYSROOT)/share" "$(SYSROOT)/include" "$(INSTALL_DIR)"
+
 DEFINED_SYMBOLS = $(SYSROOT_SHARE)/defined-symbols.txt
 UNDEFINED_SYMBOLS = $(SYSROOT_SHARE)/undefined-symbols.txt
+EXPECTED_TARGET_DIR = expected/${EXPECTED_TARGET_TRIPLE}
 
-check-symbols: startup_files libc
+
+check-symbols: $(STARTUP_FILES) libc
 	#
 	# Collect metadata on the sysroot and perform sanity checks.
 	#
@@ -1067,9 +993,19 @@ check-symbols: startup_files libc
 	# This ignores whitespace because on Windows the output has CRLF line endings.
 	diff -wur "$(EXPECTED_TARGET_DIR)" "$(SYSROOT_SHARE)"
 
-install: finish
-	mkdir -p "$(INSTALL_DIR)"
-	cp -r "$(SYSROOT)/lib" "$(SYSROOT)/share" "$(SYSROOT)/include" "$(INSTALL_DIR)"
+
+##### BINDINGS #################################################################
+# The `bindings` target retrieves the necessary WIT files for the wasi-cli world
+# and generates a header file used by the wasip2 target.
+################################################################################
+
+# The directory where we store files and tools for generating WASIp2 bindings
+BINDING_WORK_DIR ?= build/bindings
+# URL from which to retrieve the WIT files used to generate the WASIp2 bindings
+WASI_CLI_URL ?= https://github.com/WebAssembly/wasi-cli/archive/refs/tags/v0.2.0.tar.gz
+# URL from which to retrieve the `wit-bindgen` command used to generate the
+# WASIp2 bindings.
+WIT_BINDGEN_URL ?= https://github.com/bytecodealliance/wit-bindgen/releases/download/wit-bindgen-cli-0.17.0/wit-bindgen-v0.17.0-x86_64-linux.tar.gz
 
 $(BINDING_WORK_DIR)/wasi-cli:
 	mkdir -p "$(BINDING_WORK_DIR)"
@@ -1133,4 +1069,4 @@ clean:
 	$(RM) -r "$(OBJDIR)"
 	$(RM) -r "$(SYSROOT)"
 
-.PHONY: default startup_files libc libc_so finish install clean check-symbols bindings
+.PHONY: default libc libc_so finish install clean check-symbols bindings

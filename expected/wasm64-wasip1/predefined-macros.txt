@@ -1463,15 +1463,10 @@
 #define PTHREAD_COND_INITIALIZER {{{0}}}
 #define PTHREAD_CREATE_DETACHED 1
 #define PTHREAD_CREATE_JOINABLE 0
-<<<<<<< HEAD
-#define PTHREAD_EXPLICIT_SCHED 1
-#define PTHREAD_INHERIT_SCHED 0
-=======
 #define PTHREAD_DESTRUCTOR_ITERATIONS 4
 #define PTHREAD_EXPLICIT_SCHED 1
 #define PTHREAD_INHERIT_SCHED 0
 #define PTHREAD_KEYS_MAX 128
->>>>>>> origin/main
 #define PTHREAD_MUTEX_DEFAULT 0
 #define PTHREAD_MUTEX_ERRORCHECK 2
 #define PTHREAD_MUTEX_INITIALIZER {{{0}}}
@@ -1489,10 +1484,7 @@
 #define PTHREAD_RWLOCK_INITIALIZER {{{0}}}
 #define PTHREAD_SCOPE_PROCESS 1
 #define PTHREAD_SCOPE_SYSTEM 0
-<<<<<<< HEAD
-=======
 #define PTHREAD_STACK_MIN 2048
->>>>>>> origin/main
 #define PTRBITS (sizeof(char *) * 8)
 #define PTRDIFF_MAX INT64_MAX
 #define PTRDIFF_MIN INT64_MIN
@@ -3164,6 +3156,7 @@
 #define __wasm64 1
 #define __wasm64__ 1
 #define __wasm__ 1
+#define __wasm_bulk_memory_opt__ 1
 #define _tolower(a) ((a)|0x20)
 #define _toupper(a) ((a)&0x5f)
 #define acos(x) __tg_real_complex(acos, (x))
