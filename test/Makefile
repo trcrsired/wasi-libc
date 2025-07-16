@@ -35,13 +35,12 @@ $(SYSROOT):
 
 LIBC_TEST_URL ?= https://github.com/bytecodealliance/libc-test
 LIBC_TEST = $(DOWNDIR)/libc-test
-LIBRT_URL ?= https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-24/libclang_rt.builtins-wasm32-wasi-24.0.tar.gz
-LIBRT = $(DOWNDIR)/libclang_rt.builtins-wasm32.a
-WASMTIME_URL ?= https://github.com/bytecodealliance/wasmtime/releases/download/v26.0.1/wasmtime-v26.0.1-x86_64-linux.tar.xz
+ARCH := $(shell uname -m)
+WASMTIME_URL ?= https://github.com/bytecodealliance/wasmtime/releases/download/v29.0.1/wasmtime-v29.0.1-$(ARCH)-linux.tar.xz
 WASMTIME = $(abspath $(DOWNDIR)/$(shell basename $(WASMTIME_URL) .tar.xz)/wasmtime)
-WASM_TOOLS_URL ?= https://github.com/bytecodealliance/wasm-tools/releases/download/v1.220.0/wasm-tools-1.220.0-x86_64-linux.tar.gz
+WASM_TOOLS_URL ?= https://github.com/bytecodealliance/wasm-tools/releases/download/v1.224.0/wasm-tools-1.224.0-$(ARCH)-linux.tar.gz
 WASM_TOOLS = $(DOWNDIR)/$(shell basename $(WASM_TOOLS_URL) .tar.gz)/wasm-tools
-ADAPTER_URL ?= https://github.com/bytecodealliance/wasmtime/releases/download/v26.0.1/wasi_snapshot_preview1.command.wasm
+ADAPTER_URL ?= https://github.com/bytecodealliance/wasmtime/releases/download/v29.0.1/wasi_snapshot_preview1.command.wasm
 ADAPTER = $(DOWNDIR)/wasi_snapshot_preview1.command.wasm
 
 $(DOWNDIR):
@@ -49,12 +48,6 @@ $(DOWNDIR):
 
 $(LIBC_TEST): | $(DOWNDIR)
 	git clone --depth 1 $(LIBC_TEST_URL) $@
-
-# TODO: add install target to copy builtins library directly into a Clang
-# installation.
-$(LIBRT): | $(DOWNDIR)
-	wget --no-clobber --directory-prefix=$(DOWNDIR) $(LIBRT_URL)
-	tar --extract --file=$(DOWNDIR)/$(shell basename $(LIBRT_URL)) --strip-components=1 --directory=$(DOWNDIR)/
 
 $(WASMTIME): | $(DOWNDIR)
 	wget --no-clobber --directory-prefix=$(DOWNDIR) $(WASMTIME_URL)
@@ -68,7 +61,7 @@ $(ADAPTER): | $(DOWNDIR)
 	wget --no-clobber --directory-prefix=$(DOWNDIR) $(ADAPTER_URL)
 
 # Target to download all necessary dependencies.
-TO_DOWNLOAD = $(LIBC_TEST) $(LIBRT) $(WASMTIME)
+TO_DOWNLOAD = $(LIBC_TEST) $(WASMTIME)
 ifeq ($(TARGET_TRIPLE), wasm32-wasip2)
 TO_DOWNLOAD += $(ADAPTER) $(WASM_TOOLS)
 endif
@@ -132,6 +125,16 @@ ifneq ($(findstring -threads,$(TARGET_TRIPLE)),)
 CFLAGS += -pthread
 endif
 
+# Handle compiler-rt which is required for tests. This is done by requesting
+# that the parent directory, the main wasi-libc directory, fetch its compiler-rt
+# which will create a `resource-dir` argument which we can then add to LDFLAGS
+# which gets fed down below into the actual linking of wasms.
+LDFLAGS += -resource-dir ../build/$(TARGET_TRIPLE)/resource-dir
+BUILTINS_STAMP := $(OBJDIR)/builtins.stamp
+$(BUILTINS_STAMP):
+	make -C .. builtins
+	touch $@
+
 # Build up all the `*.wasm.o` object files; these are the same regardless of
 # whether we're building core modules or components.
 $(WASM_OBJS): $(INFRA_HEADERS)
@@ -141,7 +144,7 @@ $(OBJDIR)/%.wasm.o: $(SRCDIR)/%.c $(DOWNLOADED) $(SYSROOT)
 
 # Build up all the `*.wasm` files.
 obj_to_c = $(patsubst $(OBJDIR)/%.wasm.o,$(SRCDIR)/%.c,$1)
-$(OBJDIR)/%.core.wasm: $(OBJDIR)/%.wasm.o $(INFRA_WASM_OBJS)
+$(OBJDIR)/%.core.wasm: $(OBJDIR)/%.wasm.o $(INFRA_WASM_OBJS) | $(BUILTINS_STAMP)
 	@mkdir -p $(@D)
 	$(CC) $(CFLAGS) $(LDFLAGS) $(shell scripts/add-flags.py LDFLAGS $(call obj_to_c,$<)) $^ -o $@
 
