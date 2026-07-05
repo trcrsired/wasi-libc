@@ -3346,6 +3346,7 @@
 #define __wasilibc___typedef_time_t_h 
 #define __wasilibc___typedef_uid_t_h 
 #define __wasilibc_use_wasip2 1
+#define __wasip2__ 1
 #define __wasm 1
 #define __wasm32 1
 #define __wasm32__ 1
