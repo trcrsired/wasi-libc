@@ -27,10 +27,6 @@
 #error <wasi/api.h> is only supported on WASI platforms.
 #endif
 
-#ifndef __wasm32__
-#error <wasi/api.h> only supports wasm32; doesn't yet support wasm64
-#endif
-
 #include <stddef.h>
 #include <stdint.h>
 
