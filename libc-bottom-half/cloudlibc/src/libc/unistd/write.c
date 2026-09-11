@@ -2,11 +2,21 @@
 //
 // SPDX-License-Identifier: BSD-2-Clause
 
-#include <wasi/api.h>
 #include <errno.h>
 #include <unistd.h>
+#include <wasi/api.h>
+
+#ifndef __wasip1__
+#include <stddefer.h>
+#include <wasi/descriptor_table.h>
+#include <wasi/file_utils.h>
+#include <common/errors.h>
+#include <time.h>
+#include "lock.h"
+#endif
 
 ssize_t write(int fildes, const void *buf, size_t nbyte) {
+#if defined(__wasip1__)
   __wasi_ciovec_t iov = {.buf = buf, .buf_len = nbyte};
   size_t bytes_written;
   __wasi_errno_t error =
@@ -16,4 +26,21 @@ ssize_t write(int fildes, const void *buf, size_t nbyte) {
     return -1;
   }
   return bytes_written;
+#else
+  descriptor_table_entry_t entry;
+  if (descriptor_table_get(fildes, &entry) < 0)
+    return -1;
+  defer descriptor_table_entry_dec(entry);
+  if (entry.vtable->get_write_stream) {
+    wasi_write_t write;
+    if (entry.vtable->get_write_stream(entry.data, &write) < 0)
+      return -1;
+    defer STRONG_UNLOCK(*write.state->lock);
+    return __wasilibc_write(&write, buf, nbyte);
+  }
+  if (entry.vtable->sendto)
+    return entry.vtable->sendto(entry.data, buf, nbyte, 0, NULL, 0);
+  errno = EOPNOTSUPP;
+  return -1;
+#endif
 }

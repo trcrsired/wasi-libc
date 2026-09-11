@@ -2,10 +2,17 @@
 //
 // SPDX-License-Identifier: BSD-2-Clause
 
-#include <wasi/api.h>
 #include <dirent.h>
 #include <errno.h>
 #include <stdlib.h>
+#include <wasi/api.h>
+
+#ifndef __wasip1__
+#include <stddefer.h>
+#include <wasi/file_utils.h>
+#include <common/errors.h>
+#else
+#endif
 
 #include "dirent_impl.h"
 
@@ -14,6 +21,8 @@ DIR *fdopendir(int fd) {
   DIR *dirp = malloc(sizeof(*dirp));
   if (dirp == NULL)
     return NULL;
+
+#if defined(__wasip1__)
   dirp->buffer = malloc(DIRENT_DEFAULT_BUFFER_SIZE);
   if (dirp->buffer == NULL) {
     free(dirp);
@@ -41,4 +50,42 @@ DIR *fdopendir(int fd) {
   dirp->dirent = NULL;
   dirp->dirent_size = 1;
   return dirp;
+#elif defined(__wasip2__) || defined(__wasip3__)
+  defer free(dirp);
+
+  // Translate the file descriptor to an internal handle
+  filesystem_borrow_descriptor_t file_handle;
+  descriptor_table_entry_t entry;
+  if (fd_to_file_handle(fd, &entry, &file_handle) < 0)
+    return NULL;
+  defer descriptor_table_entry_dec(entry);
+
+  // Read the directory
+#if defined(__wasip2__)
+  filesystem_own_directory_entry_stream_t result;
+  filesystem_error_code_t error_code;
+  bool ok = filesystem_method_descriptor_read_directory(file_handle,
+                                                        &result,
+                                                        &error_code);
+  if (!ok) {
+    translate_error(&error_code);
+    return NULL;
+  }
+
+  dirp->stream = result;
+#elif defined(__wasip3__)
+  filesystem_method_descriptor_read_directory(file_handle, &dirp->stream);
+  dirp->stream_done = false;
+#endif
+  dirp->fd = fd;
+  dirp->skip = 0;
+  dirp->offset = 0;
+  dirp->dirent = NULL;
+  dirp->dirent_size = 1;
+  DIR *ret = dirp;
+  dirp = NULL;
+  return ret;
+#else
+# error "Unsupported WASI version"
+#endif
 }

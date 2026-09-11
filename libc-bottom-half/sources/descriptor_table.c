@@ -1,263 +1,359 @@
-/*
- * This file provides a global hashtable for tracking `wasi-libc`-managed file
- * descriptors.
- *
- * WASI Preview 2 has no notion of file descriptors and instead uses unforgeable
- * resource handles (which are currently represented as integers at the ABI
- * level, used as indices into per-component tables managed by the host).
- * Moreover, there's not necessarily a one-to-one correspondence between POSIX
- * file descriptors and resource handles (e.g. a TCP connection may require
- * separate handles for reading, writing, and polling the same connection).  We
- * use this table to map each POSIX descriptor to a set of one or more handles.
- *
- * As of this writing, we still rely on the WASI Preview 1 adapter
- * (https://github.com/bytecodealliance/wasmtime/tree/main/crates/wasi-preview1-component-adapter)
- * to manage non-socket descriptors, so currently this table only tracks TCP and
- * UDP sockets.  We use the adapter's `adapter_open_badfd` and
- * `adapter_close_badfd` functions to reserve and later close descriptors to
- * avoid confusion (e.g. if an application tries to use Preview 1 host functions
- * directly for socket operations rather than go through `wasi-libc`).
- * Eventually, we'll switch `wasi-libc` over to Preview 2 entirely, at which
- * point we'll no longer need the adapter.  At that point, all file descriptors
- * will be managed exclusively in this table.
+/**
+ * This file defines the mapping from libc-based file descriptors to WASIp2
+ * resources/structures/etc. This is a slab which is indexed by file
+ * descriptors and makes allocation/deallocation relatively easy.
  */
 
+#include "lock.h"
+#include <assert.h>
+#include <errno.h>
+#include <stddefer.h>
+#include <stdlib.h>
+#include <string.h>
 #include <wasi/descriptor_table.h>
-
-#ifndef IMPORT_NAME
-#ifdef __wasm64__
-#define IMPORT_NAME(x) __import_name__(x "_wasm64")
-#else
-#define IMPORT_NAME(x) __import_name__(x)
-#endif
-#endif
-
-__attribute__((__import_module__("wasi_snapshot_preview1"),
-	       IMPORT_NAME("adapter_open_badfd"))) extern int32_t
-	__wasi_preview1_adapter_open_badfd(int32_t);
-
-static bool wasi_preview1_adapter_open_badfd(int *fd)
-{
-	return __wasi_preview1_adapter_open_badfd((intptr_t)fd) == 0;
-}
-
-__attribute__((__import_module__("wasi_snapshot_preview1"),
-	       IMPORT_NAME("adapter_close_badfd"))) extern int32_t
-	__wasi_preview1_adapter_close_badfd(intptr_t);
-
-static bool wasi_preview1_adapter_close_badfd(int fd)
-{
-	return __wasi_preview1_adapter_close_badfd(fd) == 0;
-}
-
-/*
- * This hash table is based on the one in musl/src/search/hsearch.c, but uses
- * integer keys and supports a `remove` operation.  Note that I've switched from
- * quadratic to linear probing in order to make `remove` simple and efficient,
- * with the tradeoff that clustering is more likely.  See also
- * https://en.wikipedia.org/wiki/Open_addressing.
- */
+#include <wasi/stdio.h>
 
 #define MINSIZE 8
-#define MAXSIZE ((size_t)-1 / 2 + 1)
 
 typedef struct {
-	bool occupied;
-	int key;
-	descriptor_table_entry_t entry;
+  bool occupied;
+  descriptor_table_entry_t entry;
 } descriptor_table_item_t;
 
 typedef struct {
-	descriptor_table_item_t *entries;
-	size_t mask;
-	size_t used;
+  DECLARE_STRONG_LOCK(lock);
+  // Dynamically allocated array of `len` entries.
+  descriptor_table_item_t *entries;
+  // Dynamic length of `entries`.
+  size_t len;
+  // Allocation hint: every entry below this index is occupied, so searches
+  // for a free entry can start here. Lowered on removal, advanced on
+  // allocation.
+  size_t next_fd;
 } descriptor_table_t;
 
-static descriptor_table_t global_table = { .entries = NULL,
-					   .mask = 0,
-					   .used = 0 };
+static descriptor_table_t global_table = {0};
 
-static size_t keyhash(int key)
-{
-	// TODO: use a hash function here
-	return key;
+/// Grows `table` to have capacity for at least `needed` entries, marking all
+/// newly allocated entries as unoccupied. Returns -1 and sets `errno` on
+/// failure.
+static int table_grow(descriptor_table_t *table, size_t needed) {
+  STRONG_ASSERT_HELD(table->lock);
+  if (needed <= table->len)
+    return 0;
+  size_t new_len = table->len == 0 ? MINSIZE : table->len;
+  while (new_len < needed)
+    new_len *= 2;
+  descriptor_table_item_t *new_entries =
+      realloc(table->entries, new_len * sizeof(descriptor_table_item_t));
+  if (!new_entries) {
+    errno = ENOMEM;
+    return -1;
+  }
+  memset(new_entries + table->len, 0,
+         (new_len - table->len) * sizeof(descriptor_table_item_t));
+  table->entries = new_entries;
+  table->len = new_len;
+  return 0;
 }
 
-static int resize(size_t nel, descriptor_table_t *table)
-{
-	size_t newsize;
-	size_t i;
-	descriptor_table_item_t *e, *newe;
-	descriptor_table_item_t *oldtab = table->entries;
-	descriptor_table_item_t *oldend = table->entries + table->mask + 1;
+/**
+ * Allocates a new `descriptor_table_entry_t` in the `table` provided.
+ *
+ * Copies `entry` into the table and returns the lowest unoccupied integer
+ * descriptor.
+ *
+ * Returns -1 on failure and sets `errno`.
+ */
+static int table_allocate(descriptor_table_t *table,
+                          descriptor_table_entry_t entry) {
+  STRONG_ASSERT_HELD(table->lock);
+  size_t fd = table->next_fd;
+  while (fd < table->len && table->entries[fd].occupied)
+    fd++;
+  if (fd == table->len && table_grow(table, table->len + 1) < 0)
+    return -1;
 
-	if (nel > MAXSIZE)
-		nel = MAXSIZE;
-	for (newsize = MINSIZE; newsize < nel; newsize *= 2)
-		;
-	table->entries = calloc(newsize, sizeof *table->entries);
-	if (!table->entries) {
-		table->entries = oldtab;
-		return 0;
-	}
-	table->mask = newsize - 1;
-	if (!oldtab)
-		return 1;
-	for (e = oldtab; e < oldend; e++)
-		if (e->occupied) {
-			for (i = keyhash(e->key);; ++i) {
-				newe = table->entries + (i & table->mask);
-				if (!newe->occupied)
-					break;
-			}
-			*newe = *e;
-		}
-	free(oldtab);
-	return 1;
+  table->entries[fd].occupied = true;
+  table->entries[fd].entry = entry;
+  table->next_fd = fd + 1;
+  return fd;
 }
 
-static descriptor_table_item_t *lookup(int key, size_t hash,
-				       descriptor_table_t *table)
-{
-	size_t i;
-	descriptor_table_item_t *e;
+/**
+ * Looks up `fd` within the provided `table`.
+ *
+ * Returns 0 on success and fills in `entry` with the located entry.
+ *
+ * Returns -1 on failure and sets `errno`.
+ */
+static descriptor_table_entry_t *table_lookup(descriptor_table_t *table,
+                                              int fd) {
+  STRONG_ASSERT_HELD(table->lock);
+  if (fd < 0 || (size_t)fd >= table->len) {
+    errno = EBADF;
+    return NULL;
+  }
 
-	for (i = hash;; ++i) {
-		e = table->entries + (i & table->mask);
-		if (!e->occupied || e->key == key)
-			break;
-	}
-	return e;
+  descriptor_table_item_t *table_entry = &table->entries[fd];
+  if (!table_entry->occupied) {
+    errno = EBADF;
+    return NULL;
+  }
+
+  return &table_entry->entry;
 }
 
-static bool insert(descriptor_table_entry_t entry, int fd,
-		   descriptor_table_t *table)
-{
-	if (!table->entries) {
-		if (!resize(MINSIZE, table)) {
-			return false;
-		}
-	}
+/**
+ * Removes `fd` within the provided `table`.
+ *
+ * Returns 0 on success and fills in `entry` with the contents of the entry
+ * before removal.
+ *
+ * Returns -1 on failure and sets `errno`.
+ */
+static int table_remove(descriptor_table_t *table, int fd,
+                        descriptor_table_entry_t *ret) {
+  STRONG_ASSERT_HELD(table->lock);
+  if (fd < 0 || (size_t)fd >= table->len) {
+    errno = EBADF;
+    return -1;
+  }
 
-	size_t hash = keyhash(fd);
-	descriptor_table_item_t *e = lookup(fd, hash, table);
+  descriptor_table_item_t *table_entry = &table->entries[fd];
+  if (!table_entry->occupied) {
+    errno = EBADF;
+    return -1;
+  }
 
-	e->entry = entry;
-	if (!e->occupied) {
-		e->key = fd;
-		e->occupied = true;
-		if (++table->used > table->mask - table->mask / 4) {
-			if (!resize(2 * table->used, table)) {
-				table->used--;
-				e->occupied = false;
-				return false;
-			}
-		}
-	}
-	return true;
+  *ret = table_entry->entry;
+  table_entry->occupied = false;
+  if ((size_t)fd < table->next_fd)
+    table->next_fd = fd;
+
+  return 0;
 }
 
-static bool get(int fd, descriptor_table_entry_t **entry,
-		descriptor_table_t *table)
-{
-	if (!table->entries) {
-		return false;
-	}
-
-	size_t hash = keyhash(fd);
-	descriptor_table_item_t *e = lookup(fd, hash, table);
-	if (e->occupied) {
-		*entry = &e->entry;
-		return true;
-	} else {
-		return false;
-	}
+static void clear(descriptor_table_t *table) {
+  STRONG_ASSERT_HELD(table->lock);
+  for (size_t i = 0; i < table->len; ++i) {
+    descriptor_table_item_t *table_entry = &table->entries[i];
+    if (table_entry->occupied) {
+      descriptor_table_entry_dec(table_entry->entry);
+    }
+  }
+  if (table->entries)
+    free(table->entries);
+  table->entries = NULL;
+  table->next_fd = 0;
+  table->len = 0;
 }
 
-static bool remove(int fd, descriptor_table_entry_t *entry,
-		   descriptor_table_t *table)
-{
-	if (!table->entries) {
-		return false;
-	}
+static bool stdio_initialized = false;
 
-	size_t hash = keyhash(fd);
-	size_t i;
-	descriptor_table_item_t *e;
-	for (i = hash;; ++i) {
-		e = table->entries + (i & table->mask);
-		if (!e->occupied || e->key == fd)
-			break;
-	}
-
-	if (e->occupied) {
-		*entry = e->entry;
-		e->occupied = false;
-
-		// Search for any occupied entries which would be lost (due to
-		// an interrupted linear probe) if we left this one unoccupied
-		// and move them as necessary.
-		i = i & table->mask;
-		size_t j = i;
-		while (true) {
-			j = (j + 1) & table->mask;
-			e = table->entries + j;
-			if (!e->occupied)
-				break;
-			size_t k = keyhash(e->key) & table->mask;
-			if (i <= j) {
-				if ((i < k) && (k <= j))
-					continue;
-			} else if ((i < k) || (k <= j)) {
-				continue;
-			}
-			table->entries[i] = *e;
-			e->occupied = false;
-			i = j;
-		}
-
-		// If the load factor has dropped below 25%, shrink the table to
-		// reduce memory footprint.
-		if (--table->used < table->mask / 4) {
-			resize(table->mask / 2, table);
-		}
-
-		return true;
-	} else {
-		return false;
-	}
+static int init_stdio() {
+  stdio_initialized = true;
+  return __wasilibc_init_stdio();
 }
 
-bool descriptor_table_insert(descriptor_table_entry_t entry, int *fd)
-{
-	if (wasi_preview1_adapter_open_badfd(fd)) {
-		if (insert(entry, *fd, &global_table)) {
-			return true;
-		} else {
-			if (!wasi_preview1_adapter_close_badfd(*fd)) {
-				abort();
-			}
-			*fd = -1;
-			return false;
-		}
-	} else {
-		return false;
-	}
+#ifdef NDEBUG
+static void live_descriptors_inc() {}
+static void live_descriptors_dec() {}
+#else
+#include <stdio.h>
+
+static unsigned live_descriptors = 0;
+
+static void live_descriptors_inc() { live_descriptors += 1; }
+
+static void live_descriptors_dec() {
+  assert(live_descriptors > 0);
+  live_descriptors -= 1;
 }
 
-bool descriptor_table_get_ref(int fd, descriptor_table_entry_t **entry)
-{
-	return get(fd, entry, &global_table);
+void __wasilibc_assert_no_descriptor_leaks() {
+  if (!stdio_initialized) {
+    assert(live_descriptors == 0);
+    return;
+  }
+
+  unsigned stdio_open = 0;
+  unsigned closed = 0;
+  for (size_t i = 0; i < global_table.len; i++) {
+    descriptor_table_item_t *table_entry = &global_table.entries[i];
+    if (table_entry->occupied) {
+      if (i < 3) {
+        stdio_open++;
+      } else {
+        int rc = descriptor_table_remove(i);
+        assert(rc == 0);
+        closed++;
+      }
+    }
+  }
+
+  if (live_descriptors == stdio_open)
+    return;
+  fprintf(stderr, "live_descriptors: %u\n", live_descriptors);
+  fprintf(stderr, "closed at end: %u\n", closed);
+  fprintf(stderr, "num stdio: %u\n", stdio_open);
+  fprintf(stderr,
+          "ERROR: detected a fd leak (live descriptors != num stdio)\n");
+  __builtin_trap();
+}
+#endif
+
+static int descriptor_table_insert_entry(descriptor_table_entry_t entry) {
+  STRONG_ASSERT_HELD(global_table.lock);
+
+  assert(entry.data->cnt > 0);
+  int fd = table_allocate(&global_table, entry);
+  if (fd < 0)
+    goto error;
+  return fd;
+error:
+  descriptor_table_entry_dec(entry);
+  return -1;
 }
 
-bool descriptor_table_remove(int fd, descriptor_table_entry_t *entry)
-{
-	if (remove(fd, entry, &global_table)) {
-		if (!wasi_preview1_adapter_close_badfd(fd)) {
-			abort();
-		}
-		return true;
-	} else {
-		return false;
-	}
+int descriptor_table_insert(descriptor_table_entry_t entry) {
+  assert(entry.data->cnt == 0);
+  entry.data->cnt = 1;
+  live_descriptors_inc();
+
+  if (!stdio_initialized && init_stdio() < 0) {
+    descriptor_table_entry_dec(entry);
+    return -1;
+  }
+
+  STRONG_LOCK(global_table.lock);
+  defer STRONG_UNLOCK(global_table.lock);
+
+  return descriptor_table_insert_entry(entry);
+}
+
+int descriptor_table_get(int fd, descriptor_table_entry_t *entry) {
+  if (!stdio_initialized && init_stdio() < 0)
+    return -1;
+
+  STRONG_LOCK(global_table.lock);
+  defer STRONG_UNLOCK(global_table.lock);
+
+  descriptor_table_entry_t *slot = table_lookup(&global_table, fd);
+  if (!slot)
+    return -1;
+  descriptor_table_entry_inc(*slot);
+  *entry = *slot;
+  return 0;
+}
+
+// Some large but not too large value to allow `dup2` to dos this process.
+#define MAX_DESCRIPTOR (1 << 20)
+
+int descriptor_table_dup(int fd, enum dup_op_t op, int arg) {
+  if (!stdio_initialized && init_stdio() < 0)
+    return -1;
+
+  STRONG_LOCK(global_table.lock);
+  defer STRONG_UNLOCK(global_table.lock);
+
+  descriptor_table_entry_t *entry_ptr = table_lookup(&global_table, fd);
+  if (!entry_ptr)
+    return -1;
+
+  descriptor_table_entry_t entry = *entry_ptr;
+
+  switch (op) {
+  case DUP_OP_DUP:
+    descriptor_table_entry_inc(entry);
+    return descriptor_table_insert_entry(entry);
+
+  case DUP_OP_DUP2:
+    if (fd == arg)
+      return arg;
+    // fall through ...
+  case DUP_OP_DUP3: {
+    if (fd == arg) {
+      errno = EINVAL;
+      return -1;
+    }
+    if (arg < 0 || arg >= MAX_DESCRIPTOR) {
+      errno = EBADF;
+      return -1;
+    }
+    size_t newfd = arg;
+
+    if (table_grow(&global_table, newfd + 1) < 0)
+      return -1;
+
+    descriptor_table_item_t *table_entry = &global_table.entries[newfd];
+    descriptor_table_entry_inc(entry);
+
+    if (table_entry->occupied) {
+      descriptor_table_entry_t prev = table_entry->entry;
+      table_entry->entry = entry;
+      descriptor_table_entry_dec(prev);
+    } else {
+      table_entry->entry = entry;
+      table_entry->occupied = true;
+    }
+    return arg;
+  }
+
+  case DUP_OP_DUPFD: {
+    if (arg < 0 || arg >= MAX_DESCRIPTOR) {
+      errno = EINVAL;
+      return -1;
+    }
+    // Search for the lowest unoccupied descriptor >= `arg`, starting at the
+    // allocation hint if it's already past `arg`.
+    size_t minfd = arg;
+    if (minfd < global_table.next_fd)
+      minfd = global_table.next_fd;
+    while (minfd < global_table.len && global_table.entries[minfd].occupied)
+      minfd++;
+    if (table_grow(&global_table, minfd + 1) < 0)
+      return -1;
+
+    descriptor_table_entry_inc(entry);
+    global_table.entries[minfd].occupied = true;
+    global_table.entries[minfd].entry = entry;
+
+    return minfd;
+  }
+
+  default:
+    __builtin_trap();
+  }
+}
+
+int descriptor_table_remove(int fd) {
+  if (!stdio_initialized && init_stdio() < 0)
+    return -1;
+
+  descriptor_table_entry_t entry;
+  STRONG_LOCK(global_table.lock);
+  int rc = table_remove(&global_table, fd, &entry);
+  STRONG_UNLOCK(global_table.lock);
+  if (rc < 0)
+    return -1;
+
+  descriptor_table_entry_dec(entry);
+  return 0;
+}
+
+void descriptor_table_clear() {
+  STRONG_LOCK(global_table.lock);
+  defer STRONG_UNLOCK(global_table.lock);
+
+  clear(&global_table);
+  stdio_initialized = false;
+}
+
+void __wasilibc_descriptor_deallocate(descriptor_table_entry_t entry) {
+  assert(entry.data->cnt == 0);
+  int saved_errno = errno;
+  entry.vtable->free(entry.data);
+  errno = saved_errno;
+  live_descriptors_dec();
 }

@@ -5,14 +5,12 @@
 #define __need_NULL
 #include <stddef.h>
 
-#include <__typedef_time_t.h>
 #include <__struct_timespec.h>
 #include <__struct_tm.h>
 #include <__typedef_clockid_t.h>
+#include <__typedef_time_t.h>
 
-#include <wasi/api.h>
-
-#define TIMER_ABSTIME __WASI_SUBCLOCKFLAGS_SUBSCRIPTION_CLOCK_ABSTIME
+#define TIMER_ABSTIME 1
 
 extern const struct __clockid _CLOCK_MONOTONIC;
 #define CLOCK_MONOTONIC (&_CLOCK_MONOTONIC)

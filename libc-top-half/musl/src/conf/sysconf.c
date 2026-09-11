@@ -21,7 +21,7 @@
 #define JT_MQ_PRIO_MAX JT(3)
 #endif
 #define JT_PAGE_SIZE JT(4)
-#ifdef __wasilibc_unmodified_upstream // WASI has no semaphores
+#ifdef __wasi_cooperative_threads__ // wasi-threads has no semaphores
 #define JT_SEM_VALUE_MAX JT(5)
 #endif
 #define JT_NPROCESSORS_CONF JT(6)
@@ -88,7 +88,7 @@ long sysconf(int name)
 		// Not supported on wasi.
 		[_SC_RTSIG_MAX] = -1,
 #endif
-#ifdef __wasilibc_unmodified_upstream // WASI has no semaphores
+#ifdef __wasi_cooperative_threads__ // wasi-threads has no semaphores
 		[_SC_SEM_NSEMS_MAX] = SEM_NSEMS_MAX,
 		[_SC_SEM_VALUE_MAX] = JT_SEM_VALUE_MAX,
 #else
@@ -138,10 +138,10 @@ long sysconf(int name)
 		[_SC_THREAD_THREADS_MAX] = -1,
 		[_SC_THREAD_ATTR_STACKADDR] = VER,
 		[_SC_THREAD_ATTR_STACKSIZE] = VER,
-		[_SC_THREAD_PRIORITY_SCHEDULING] = VER,
+		[_SC_THREAD_PRIORITY_SCHEDULING] = -1,
 		[_SC_THREAD_PRIO_INHERIT] = -1,
 		[_SC_THREAD_PRIO_PROTECT] = -1,
-		[_SC_THREAD_PROCESS_SHARED] = VER,
+		[_SC_THREAD_PROCESS_SHARED] = -1,
 		[_SC_NPROCESSORS_CONF] = JT_NPROCESSORS_CONF,
 		[_SC_NPROCESSORS_ONLN] = JT_NPROCESSORS_ONLN,
 		[_SC_PHYS_PAGES] = JT_PHYS_PAGES,
@@ -249,7 +249,7 @@ long sysconf(int name)
 #endif
 	case JT_PAGE_SIZE & 255:
 		return PAGE_SIZE;
-#ifdef __wasilibc_unmodified_upstream // WASI has no semaphores
+#if defined(__wasilibc_unmodified_upstream) || defined(__wasi_cooperative_threads__) // wasi-threads has no semaphores
 	case JT_SEM_VALUE_MAX & 255:
 		return SEM_VALUE_MAX;
 #endif
@@ -287,8 +287,13 @@ long sysconf(int name)
 #ifdef __wasilibc_unmodified_upstream // WASI has no auxv
 	case JT_MINSIGSTKSZ & 255:
 	case JT_SIGSTKSZ & 255: ;
-		long val = __getauxval(AT_MINSIGSTKSZ);
-		if (val < MINSIGSTKSZ) val = MINSIGSTKSZ;
+		/* Value from auxv/kernel is only sigfame size. Clamp it
+		 * to at least 1k below arch's traditional MINSIGSTKSZ,
+		 * then add 1k of working space for signal handler. */
+		unsigned long sigframe_sz = __getauxval(AT_MINSIGSTKSZ);
+		if (sigframe_sz < MINSIGSTKSZ - 1024)
+			sigframe_sz = MINSIGSTKSZ - 1024;
+		unsigned val = sigframe_sz + 1024;
 		if (values[name] == JT_SIGSTKSZ)
 			val += SIGSTKSZ - MINSIGSTKSZ;
 		return val;

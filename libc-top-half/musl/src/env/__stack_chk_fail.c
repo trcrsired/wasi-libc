@@ -38,12 +38,20 @@ hidden void __stack_chk_fail_local(void);
 weak_alias(__stack_chk_fail, __stack_chk_fail_local);
 
 #ifndef __wasilibc_unmodified_upstream
-# include <wasi/api.h>
+#include <wasi/libc.h>
+#include <wasi/api.h>
 
 __attribute__((constructor(60)))
 static void __wasilibc_init_ssp(void) {
 	uintptr_t entropy;
+#if defined(__wasip1__)
 	int r = __wasi_random_get((uint8_t *)&entropy, sizeof(uintptr_t));
+#elif defined(__wasip2__) || defined(__wasip3__)
+        int len = sizeof(uintptr_t);
+        int r = __wasilibc_random(&entropy, len);
+#else
+# error "Unknown WASI version"
+#endif
 	__init_ssp(r ? NULL : &entropy);
 }
 #endif

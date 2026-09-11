@@ -18,6 +18,8 @@
 #include "futex.h"
 
 #include "pthread_arch.h"
+#include "lock.h"
+#include <wasi/api.h>
 
 #define pthread __pthread
 
@@ -63,9 +65,13 @@ struct pthread {
 	int h_errno_val;
 	volatile int timer_id;
 	locale_t locale;
-	volatile int killlock[1];
+	DECLARE_WEAK_LOCK(killlock);
 	char *dlerror_buf;
 	void *stdio_locks;
+	#ifdef __wasi_cooperative_threads__
+	volatile int joiner_futex;
+	char name[16];
+	#endif
 
 	/* Part 3 -- the positions of these fields relative to
 	 * the end of the structure is external and internal ABI. */
@@ -122,12 +128,26 @@ enum {
 #define DTP_OFFSET 0
 #endif
 
+hidden int __init_tp(void *);
+
 #ifdef TLS_ABOVE_TP
 #define TP_ADJ(p) ((char *)(p) + sizeof(struct pthread) + TP_OFFSET)
 #define __pthread_self() ((pthread_t)(__get_tp() - sizeof(struct __pthread) - TP_OFFSET))
+#error "wasi-libc doesn't support this setting"
 #else
 #define TP_ADJ(p) (p)
-#define __pthread_self() ((pthread_t)__get_tp())
+static inline pthread_t __pthread_self() {
+  pthread_t ret = (pthread_t) __get_tp();
+  // All user-spawned threads will initialize their TLS block at the start of
+  // the thread itself. For the main thread though the initialization is
+  // deferred until pthread functions are actually used to defer acquiring the
+  // current thread's ID. This is detected here by if the main thread's
+  // self-pointer hasn't yet been initialized then it's time to init the data
+  // for the main thread.
+  if (ret->self != ret)
+    __init_tp(ret);
+  return ret;
+}
 #endif
 
 #ifndef tls_mod_off_t
@@ -147,8 +167,9 @@ enum {
 	 0x80000000 })
 
 void *__tls_get_addr(tls_mod_off_t *);
-hidden int __init_tp(void *);
+#if defined(_REENTRANT) && !defined(__wasi_cooperative_threads__)
 hidden void *__copy_tls(unsigned char *);
+#endif
 hidden void __reset_tls();
 
 hidden void __membarrier_init(void);
@@ -172,35 +193,15 @@ hidden int __libc_sigaction(int, const struct sigaction *, struct sigaction *);
 #endif
 hidden void __unmapself(void *, size_t);
 
-#ifndef __wasilibc_unmodified_upstream
-hidden int __wasilibc_futex_wait(volatile void *, int, int, int64_t);
+#ifdef __wasi_cooperative_threads__
+hidden int __wasilibc_pthread_mutex_unlock(pthread_mutex_t *m, int yield);
 #endif
+
 hidden int __timedwait(volatile int *, int, clockid_t, const struct timespec *, int);
 hidden int __timedwait_cp(volatile int *, int, clockid_t, const struct timespec *, int);
 hidden void __wait(volatile int *, volatile int *, int, int);
-static inline void __wake(volatile void *addr, int cnt, int priv)
-{
-	if (priv) priv = FUTEX_PRIVATE;
-	if (cnt<0) cnt = INT_MAX;
-#ifdef __wasilibc_unmodified_upstream
-	__syscall(SYS_futex, addr, FUTEX_WAKE|priv, cnt) != -ENOSYS ||
-	__syscall(SYS_futex, addr, FUTEX_WAKE, cnt);
-#else
-#ifdef _REENTRANT
-	__builtin_wasm_memory_atomic_notify((int*)addr, cnt);
-#endif
-#endif
-}
-static inline void __futexwait(volatile void *addr, int val, int priv)
-{
-#ifdef __wasilibc_unmodified_upstream
-	if (priv) priv = FUTEX_PRIVATE;
-	__syscall(SYS_futex, addr, FUTEX_WAIT|priv, val, 0) != -ENOSYS ||
-	__syscall(SYS_futex, addr, FUTEX_WAIT, val, 0);
-#else
-	__wait(addr, NULL, val, priv);
-#endif
-}
+hidden void __wake(volatile void *addr, int cnt, int priv);
+hidden void __futexwait(volatile void *addr, int val, int priv);
 
 hidden void __acquire_ptc(void);
 hidden void __release_ptc(void);
@@ -210,9 +211,8 @@ hidden void __tl_lock(void);
 hidden void __tl_unlock(void);
 hidden void __tl_sync(pthread_t);
 
-extern hidden volatile int __thread_list_lock;
-
-extern hidden volatile int __abort_lock[1];
+DECLARE_WEAK_LOCK(__thread_list_lock, extern hidden);
+DECLARE_STRONG_LOCK(__abort_lock, extern hidden);
 
 extern hidden unsigned __default_stacksize;
 extern hidden unsigned __default_guardsize;

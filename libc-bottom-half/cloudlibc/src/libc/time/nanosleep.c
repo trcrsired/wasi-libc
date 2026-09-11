@@ -4,9 +4,17 @@
 
 #include <errno.h>
 #include <time.h>
+#include <wasi/version.h>
 
 int nanosleep(const struct timespec *rqtp, struct timespec *rem) {
-  int error = clock_nanosleep(CLOCK_REALTIME, 0, rqtp, rem);
+#if defined(__wasip2__) || defined(__wasip3__)
+  // FIXME(WebAssembly/WASI#857): wasip2/p3 only supports the monotonic clock for
+  // sleeping.
+  clockid_t clock = CLOCK_MONOTONIC;
+#else
+  clockid_t clock = CLOCK_REALTIME;
+#endif
+  int error = clock_nanosleep(clock, 0, rqtp, rem);
   if (error != 0) {
     errno = error;
     return -1;

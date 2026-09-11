@@ -9,7 +9,10 @@
 
 int fdclosedir(DIR *dirp) {
   int fd = dirp->fd;
+#ifdef __wasip1__
   free(dirp->buffer);
+#endif
+  dirent_close_streams(dirp);
   free(dirp->dirent);
   free(dirp);
   return fd;

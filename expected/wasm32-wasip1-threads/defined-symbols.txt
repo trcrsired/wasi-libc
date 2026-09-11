@@ -15,8 +15,6 @@ __acquire_ptc
 __aio_close
 __asctime_r
 __assert_fail
-__at_quick_exit_lockptr
-__atexit_lockptr
 __c_dot_utf8
 __c_dot_utf8_locale
 __c_locale
@@ -47,6 +45,7 @@ __do_cleanup_push
 __do_des
 __do_orphaned_stdio_locks
 __dummy_reference
+__dup3
 __duplocale
 __env_rm_add
 __errno_location
@@ -81,6 +80,7 @@ __ftello
 __ftello_unlocked
 __funcs_on_exit
 __funcs_on_quick_exit
+__futexwait
 __futimesat
 __fwritable
 __fwritex
@@ -92,6 +92,7 @@ __getopt_msg
 __gmtime_r
 __hwcap
 __inet_aton
+__inhibit_ptc
 __init_ssp
 __init_tp
 __intscan
@@ -148,7 +149,6 @@ __libc_free
 __libc_malloc
 __loc_is_allocated
 __locale_lock
-__locale_lockptr
 __localtime_r
 __lock
 __lockfile
@@ -219,7 +219,6 @@ __pthread_tsd_size
 __putenv
 __qsort_r
 __rand48_step
-__random_lockptr
 __reallocarray
 __register_locked_file
 __release_ptc
@@ -231,6 +230,7 @@ __rsqrt_tab
 __secs_to_tm
 __secs_to_zone
 __seed48
+__sem_open_lockptr
 __shgetc
 __shlim
 __signgam
@@ -248,7 +248,6 @@ __stdin_used
 __stdio_close
 __stdio_exit
 __stdio_exit_needed
-__stdio_ofl_lockptr
 __stdio_read
 __stdio_seek
 __stdio_write
@@ -308,6 +307,7 @@ __unlockfile
 __uselocale
 __utc
 __wait
+__wake
 __wasi_args_get
 __wasi_args_sizes_get
 __wasi_clock_res_get
@@ -335,7 +335,6 @@ __wasi_fd_seek
 __wasi_fd_sync
 __wasi_fd_tell
 __wasi_fd_write
-__wasi_init_tp
 __wasi_path_create_directory
 __wasi_path_filestat_get
 __wasi_path_filestat_set_times
@@ -359,7 +358,6 @@ __wasi_thread_start_C
 __wasilibc_access
 __wasilibc_cwd
 __wasilibc_cwd_lock
-__wasilibc_cwd_unlock
 __wasilibc_deinitialize_environ
 __wasilibc_dttoif
 __wasilibc_enable_futex_busywait_on_current_thread
@@ -372,6 +370,7 @@ __wasilibc_find_relpath_alloc
 __wasilibc_futex_wait
 __wasilibc_futex_wait_atomic_wait
 __wasilibc_futex_wait_maybe_busy
+__wasilibc_futex_wake
 __wasilibc_get_environ
 __wasilibc_iftodt
 __wasilibc_initialize_environ
@@ -583,6 +582,9 @@ dprintf
 drand48
 drem
 dremf
+dup
+dup2
+dup3
 duplocale
 ecvt
 encrypt
@@ -748,6 +750,7 @@ getdomainname
 getentropy
 getenv
 gethostid
+gethostname
 getline
 getopt
 getopt_long
@@ -791,7 +794,13 @@ imaxdiv
 in6addr_any
 in6addr_loopback
 index
+inet_addr
 inet_aton
+inet_lnaof
+inet_makeaddr
+inet_netof
+inet_network
+inet_ntoa
 inet_ntop
 inet_pton
 initstate
@@ -939,6 +948,11 @@ modff
 modfl
 mprotect
 mrand48
+mtx_destroy
+mtx_init
+mtx_lock
+mtx_timedlock
+mtx_trylock
 munmap
 nan
 nanf
@@ -974,6 +988,8 @@ optopt
 optreset
 pathconf
 perror
+pipe
+pipe2
 poll
 posix_close
 posix_fadvise
@@ -985,6 +1001,7 @@ pow10f
 pow10l
 powf
 powl
+ppoll
 pread
 preadv
 printf
@@ -1028,6 +1045,8 @@ pthread_create
 pthread_detach
 pthread_equal
 pthread_getattr_np
+pthread_getcpuclockid
+pthread_getschedparam
 pthread_getspecific
 pthread_join
 pthread_key_create
@@ -1037,6 +1056,7 @@ pthread_mutex_destroy
 pthread_mutex_getprioceiling
 pthread_mutex_init
 pthread_mutex_lock
+pthread_mutex_setprioceiling
 pthread_mutex_timedlock
 pthread_mutex_trylock
 pthread_mutex_unlock
@@ -1067,6 +1087,9 @@ pthread_rwlockattr_setpshared
 pthread_self
 pthread_setcancelstate
 pthread_setcanceltype
+pthread_setconcurrency
+pthread_setschedparam
+pthread_setschedprio
 pthread_setspecific
 pthread_spin_destroy
 pthread_spin_init
@@ -1145,9 +1168,11 @@ sched_yield
 seed48
 seekdir
 select
+sem_close
 sem_destroy
 sem_getvalue
 sem_init
+sem_open
 sem_post
 sem_timedwait
 sem_trywait
@@ -1267,7 +1292,9 @@ tgammal
 thrd_current
 thrd_detach
 thrd_equal
+thrd_join
 thrd_sleep
+thrd_yield
 time
 timegm
 times

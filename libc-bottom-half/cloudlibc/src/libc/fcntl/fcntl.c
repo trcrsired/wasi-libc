@@ -7,7 +7,20 @@
 #include <fcntl.h>
 #include <stdarg.h>
 
+#ifndef __wasip1__
+#include <stddefer.h>
+#include <wasi/file_utils.h>
+#include <common/errors.h>
+#endif
+
 int fcntl(int fildes, int cmd, ...) {
+#if defined(__wasip2__) || defined(__wasip3__)
+  descriptor_table_entry_t entry;
+  if (descriptor_table_get(fildes, &entry) < 0)
+    return -1;
+  defer descriptor_table_entry_dec(entry);
+#endif
+
   switch (cmd) {
     case F_GETFD:
       // Act as if the close-on-exec flag is always set.
@@ -16,6 +29,8 @@ int fcntl(int fildes, int cmd, ...) {
       // The close-on-exec flag is ignored.
       return 0;
     case F_GETFL: {
+
+#if defined(__wasip1__)
       // Obtain the flags and the rights of the descriptor.
       __wasi_fdstat_t fds;
       __wasi_errno_t error = __wasi_fd_fdstat_get(fildes, &fds);
@@ -38,6 +53,15 @@ int fcntl(int fildes, int cmd, ...) {
         oflags |= O_SEARCH;
       }
       return oflags;
+#elif defined(__wasip2__) || defined(__wasip3__)
+      if (!entry.vtable->fcntl_getfl) {
+        errno = EINVAL;
+        return -1;
+      }
+      return entry.vtable->fcntl_getfl(entry.data);
+#else
+# error "Unknown WASI version"
+#endif
     }
     case F_SETFL: {
       // Set new file descriptor flags.
@@ -46,6 +70,7 @@ int fcntl(int fildes, int cmd, ...) {
       int flags = va_arg(ap, int);
       va_end(ap);
 
+#if defined(__wasip1__)
       __wasi_fdflags_t fs_flags = flags & 0xfff;
       __wasi_errno_t error =
           __wasi_fd_fdstat_set_flags(fildes, fs_flags);
@@ -53,8 +78,33 @@ int fcntl(int fildes, int cmd, ...) {
         errno = error;
         return -1;
       }
+#elif defined(__wasip2__) || defined(__wasip3__)
+      if (!entry.vtable->fcntl_setfl) {
+        errno = EINVAL;
+        return -1;
+      }
+      return entry.vtable->fcntl_setfl(entry.data, flags);
+#else
+# error "Unknown WASI version"
+#endif
       return 0;
     }
+#ifndef __wasip1__
+    case F_DUPFD:
+    case F_DUPFD_CLOEXEC: {
+      va_list ap;
+      va_start(ap, cmd);
+      int minfd = va_arg(ap, int);
+      va_end(ap);
+      return descriptor_table_dup(fildes, DUP_OP_DUPFD, minfd);
+    }
+#endif
+    case F_GETLK:
+    case F_SETLK:
+    case F_SETLKW:
+      // POSIX advisory record locking is not supported by WASI.
+      errno = ENOTSUP;
+      return -1;
     default:
       errno = EINVAL;
       return -1;

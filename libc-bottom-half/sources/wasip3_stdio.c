@@ -1,0 +1,264 @@
+#include "lock.h"
+#include <errno.h>
+#include <stddefer.h>
+#include <wasi/version.h>
+
+#ifdef __wasip3__
+#include <assert.h>
+#include <fcntl.h>
+#include <stdlib.h>
+#include <string.h>
+#include <wasi/descriptor_table.h>
+#include <wasi/wasip3.h>
+#include <wasi/wasip3_block.h>
+
+#define KNOWN_NOT_A_TERMINAL -1
+
+typedef stdout_future_result_void_error_code_t (*stdout_stream_func_t)(
+    stdin_stream_u8_t data);
+
+typedef struct {
+  descriptor_refcnt_t refcnt;
+  DECLARE_STRONG_LOCK(lock);
+  wasip3_io_state_t input;
+  stdin_future_result_void_error_code_t input_result;
+  // tristate: zero=unknown, valid handle=yes, -1=no
+  terminal_input_own_terminal_input_t terminal_in;
+} stdin3_t;
+
+typedef struct {
+  descriptor_refcnt_t refcnt;
+  DECLARE_STRONG_LOCK(lock);
+  // contains stream, result storage and result subtask
+  stdout_future_result_void_error_code_t result;
+  wasip3_io_state_t output;
+  // tristate: zero=unknown, valid handle=yes, -1=no
+  terminal_output_own_terminal_output_t terminal_out;
+  // stream creation function (delayed)
+  stdout_stream_func_t stream_func;
+  // function to determine whether this is a terminal (delayed)
+  bool (*terminal_func)(terminal_stdout_own_terminal_output_t *ret);
+} stdout3_t;
+
+static void translate_error(wasi_cli_types_error_code_t err) {
+  switch (err) {
+  case WASI_CLI_TYPES_ERROR_CODE_IO:
+    errno = EIO;
+    break;
+  case WASI_CLI_TYPES_ERROR_CODE_ILLEGAL_BYTE_SEQUENCE:
+    errno = EILSEQ;
+    break;
+  case WASI_CLI_TYPES_ERROR_CODE_PIPE:
+    errno = EPIPE;
+    break;
+  default:
+    assert(0);
+    break;
+  }
+}
+
+static void stdin3_free(void *data) {
+  stdin3_t *stdio = (stdin3_t *)data;
+  STRONG_ASSERT_EMPTY(stdio->lock);
+  if (stdio->terminal_in.__handle > 0)
+    terminal_input_terminal_input_drop_own(stdio->terminal_in);
+  wasip3_read_state_close(&stdio->input);
+  if (stdio->input_result)
+    stdin_stream_u8_drop_readable(stdio->input_result);
+  free(stdio);
+}
+
+static void stdout3_free(void *data) {
+  stdout3_t *stdio = (stdout3_t *)data;
+  STRONG_ASSERT_EMPTY(stdio->lock);
+  if (stdio->terminal_out.__handle > 0)
+    terminal_output_terminal_output_drop_own(stdio->terminal_out);
+  STRONG_LOCK(stdio->lock);
+  wasip3_write_state_close(&stdio->output);
+  STRONG_UNLOCK(stdio->lock);
+  if (stdio->result)
+    stdout_future_result_void_error_code_drop_readable(stdio->result);
+  free(stdio);
+}
+
+static int stdout3_write_eof(void *data) {
+  stdout3_t *stdio = (stdout3_t *)data;
+  STRONG_ASSERT_HELD(stdio->lock);
+
+  if (stdio->result != 0) {
+    stdout_result_void_error_code_t result;
+    __wasilibc_future_block_on(
+        stdout_future_result_void_error_code_read(stdio->result, &result),
+        stdio->result);
+    stdout_future_result_void_error_code_drop_readable(stdio->result);
+    stdio->result = 0;
+
+    if (result.is_err) {
+      translate_error(result.val.err);
+      return -1;
+    }
+  }
+  return 0;
+}
+
+static int stdout3_get_write_stream(void *data, wasi_write_t *out) {
+  stdout3_t *stdio = (stdout3_t *)data;
+  STRONG_LOCK(stdio->lock);
+  // .. intentionally don't unlock `stdio->lock` as this function lets the
+  // caller do that (see `descriptor_table.h` for details of this callback).
+
+  if (!wasip3_io_state_present(&stdio->output)) {
+    assert(!stdio->result);
+    stdin_stream_u8_writer_t writer;
+    stdin_stream_u8_t read_side = stdin_stream_u8_new(&writer);
+    stdio->result = stdio->stream_func(read_side);
+    wasip3_io_state_init(&stdio->output, writer, stdio->lock);
+  }
+  out->offset = NULL;
+  out->blocking = true;
+  out->timeout = 0;
+  out->state = &stdio->output;
+  out->eof = stdout3_write_eof;
+  out->eof_data = data;
+  return 0;
+}
+
+static int stdin3_read_eof(void *data) {
+  stdin3_t *stdio = (stdin3_t *)data;
+  STRONG_ASSERT_HELD(stdio->lock);
+
+  if (stdio->input_result != 0) {
+    stdin_result_void_error_code_t result;
+    __wasilibc_future_block_on(
+        stdin_future_result_void_error_code_read(stdio->input_result, &result),
+        stdio->input_result);
+    stdin_future_result_void_error_code_drop_readable(stdio->input_result);
+    stdio->input_result = 0;
+    if (result.is_err) {
+      translate_error(result.val.err);
+      return -1;
+    }
+  }
+  return 0;
+}
+
+static int stdin3_get_read_stream(void *data, wasi_read_t *read) {
+  stdin3_t *stdio = (stdin3_t *)data;
+  STRONG_LOCK(stdio->lock);
+  // .. intentionally don't unlock `stdio->lock` as this function lets the
+  // caller do that (see `descriptor_table.h` for details of this callback).
+
+  if (!wasip3_io_state_present(&stdio->input)) {
+    assert(!stdio->input_result);
+    stdin_tuple2_stream_u8_future_result_void_error_code_t result;
+    stdin_read_via_stream(&result);
+    wasip3_io_state_init(&stdio->input, result.f0, stdio->lock);
+    stdio->input_result = result.f1;
+  }
+  read->state = &stdio->input;
+  read->offset = NULL;
+  read->blocking = true;
+  read->timeout = 0;
+  read->eof_data = data;
+  read->eof = stdin3_read_eof;
+  return 0;
+}
+
+static int stdio3_fstat(void *data, struct stat *buf) {
+  (void)data;
+  memset(buf, 0, sizeof(*buf));
+  return 0;
+}
+
+static int stdin3_fcntl_getfl(void *data) {
+  (void)data;
+  return O_RDONLY;
+}
+
+static int stdout3_fcntl_getfl(void *data) {
+  (void)data;
+  return O_WRONLY;
+}
+
+static int stdin3_isatty(void *data) {
+  stdin3_t *stdio = (stdin3_t *)data;
+  STRONG_LOCK(stdio->lock);
+  defer STRONG_UNLOCK(stdio->lock);
+
+  if (stdio->terminal_in.__handle == 0) {
+    if (!terminal_stdin_get_terminal_stdin(&stdio->terminal_in))
+      stdio->terminal_in.__handle = KNOWN_NOT_A_TERMINAL;
+  }
+  return stdio->terminal_in.__handle > 0;
+}
+
+static int stdout3_isatty(void *data) {
+  stdout3_t *stdio = (stdout3_t *)data;
+  STRONG_LOCK(stdio->lock);
+  defer STRONG_UNLOCK(stdio->lock);
+
+  if (stdio->terminal_out.__handle == 0) {
+    if (!(*stdio->terminal_func)(&stdio->terminal_out))
+      stdio->terminal_out.__handle = KNOWN_NOT_A_TERMINAL;
+  }
+  return stdio->terminal_out.__handle > 0;
+}
+
+static descriptor_vtable_t stdin3_vtable = {
+    .free = stdin3_free,
+    .get_read_stream = stdin3_get_read_stream,
+    .fstat = stdio3_fstat,
+    .fcntl_getfl = stdin3_fcntl_getfl,
+    .isatty = stdin3_isatty,
+};
+
+static descriptor_vtable_t stdout3_vtable = {
+    .free = stdout3_free,
+    .get_write_stream = stdout3_get_write_stream,
+    .fstat = stdio3_fstat,
+    .fcntl_getfl = stdout3_fcntl_getfl,
+    .isatty = stdout3_isatty,
+};
+
+static int stdio_add_input() {
+  stdin3_t *stdio = calloc(1, sizeof(stdin3_t));
+  if (!stdio) {
+    errno = ENOMEM;
+    return -1;
+  }
+  descriptor_table_entry_t entry;
+  entry.vtable = &stdin3_vtable;
+  entry.data = &stdio->refcnt;
+  return descriptor_table_insert(entry);
+}
+
+static int stdio3_add_output(
+    stdout_stream_func_t stream_func,
+    bool (*terminal_func)(terminal_stdout_own_terminal_output_t *ret)) {
+  stdout3_t *stdio = calloc(1, sizeof(stdout3_t));
+  if (!stdio) {
+    errno = ENOMEM;
+    return -1;
+  }
+  stdio->stream_func = stream_func;
+  stdio->terminal_func = terminal_func;
+
+  descriptor_table_entry_t entry;
+  entry.vtable = &stdout3_vtable;
+  entry.data = &stdio->refcnt;
+  return descriptor_table_insert(entry);
+}
+
+int __wasilibc_init_stdio() {
+  if (stdio_add_input() < 0)
+    return -1;
+  if (stdio3_add_output(stdout_write_via_stream,
+                        terminal_stdout_get_terminal_stdout) < 0)
+    return -1;
+  // assuming that stdout and stderr functions are compatible
+  if (stdio3_add_output(stderr_write_via_stream,
+                        terminal_stderr_get_terminal_stderr) < 0)
+    return -1;
+  return 0;
+}
+#endif // __wasip3__

@@ -11,6 +11,9 @@
  */
 
 #include <wasi/api.h>
+
+#ifdef __wasip1__
+
 #include <string.h>
 
 #ifdef __wasm64__
@@ -639,3 +642,5 @@ int32_t __wasi_thread_spawn(void* start_arg) __WASI_NOEXCEPT {
 #ifdef __cplusplus
 }
 #endif
+
+#endif // __wasip1__

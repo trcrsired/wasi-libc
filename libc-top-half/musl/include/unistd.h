@@ -45,17 +45,13 @@ extern "C" {
 
 #include <bits/alltypes.h>
 
-#ifdef __wasilibc_unmodified_upstream /* WASI has no pipe */
 int pipe(int [2]);
 int pipe2(int [2], int);
-#endif
 int close(int);
 int posix_close(int, int);
-#ifdef __wasilibc_unmodified_upstream /* WASI has no dup */
 int dup(int);
 int dup2(int, int);
 int dup3(int, int, int);
-#endif
 off_t lseek(int, off_t, int);
 #ifdef __wasilibc_unmodified_upstream /* Optimize the readonly case of lseek */
 #else
@@ -336,7 +332,7 @@ pid_t gettid(void);
 #endif
 #define _POSIX_VDISABLE         0
 
-#if defined(__wasilibc_unmodified_upstream) || defined(_REENTRANT)
+#if defined(__wasilibc_unmodified_upstream) || defined(_REENTRANT) || !defined(_WASI_STRICT_PTHREAD)
 #define _POSIX_THREADS          _POSIX_VERSION
 #define _POSIX_THREAD_PROCESS_SHARED _POSIX_VERSION
 #define _POSIX_THREAD_SAFE_FUNCTIONS _POSIX_VERSION
@@ -344,7 +340,7 @@ pid_t gettid(void);
 #if defined(__wasilibc_unmodified_upstream) /* wasi-libc doesn't provide pthread_attr_{get,set}stackaddr */
 #define _POSIX_THREAD_ATTR_STACKADDR _POSIX_VERSION
 #endif
-#if defined(__wasilibc_unmodified_upstream) || defined(_REENTRANT)
+#if defined(__wasilibc_unmodified_upstream) || defined(_REENTRANT) || !defined(_WASI_STRICT_PTHREAD)
 #define _POSIX_THREAD_ATTR_STACKSIZE _POSIX_VERSION
 #endif
 #if defined(__wasilibc_unmodified_upstream) /* WASI has no scheduling control, and wasi-libc doesn't provide pthread_getcpuclockid */
@@ -359,7 +355,9 @@ pid_t gettid(void);
 #define _POSIX_BARRIERS         _POSIX_VERSION
 #define _POSIX_SPIN_LOCKS       _POSIX_VERSION
 #define _POSIX_READER_WRITER_LOCKS _POSIX_VERSION
-#ifdef __wasilibc_unmodified_upstream /* WASI has no POSIX async I/O, semaphores, or shared memory */
+#ifdef __wasi_cooperative_threads__
+#define _POSIX_SEMAPHORES       _POSIX_VERSION
+#elif defined(__wasilibc_unmodified_upstream) /* WASI has no POSIX async I/O, semaphores, or shared memory */
 #define _POSIX_ASYNCHRONOUS_IO  _POSIX_VERSION
 #define _POSIX_SEMAPHORES       _POSIX_VERSION
 #define _POSIX_SHARED_MEMORY_OBJECTS _POSIX_VERSION
@@ -367,7 +365,13 @@ pid_t gettid(void);
 
 #define _POSIX2_C_BIND          _POSIX_VERSION
 
-#include <bits/posix.h>
+#if __LONG_MAX == 0x7fffffffL
+#define _POSIX_V6_ILP32_OFFBIG  1
+#define _POSIX_V7_ILP32_OFFBIG  1
+#else
+#define _POSIX_V6_LP64_OFF64  1
+#define _POSIX_V7_LP64_OFF64  1
+#endif
 
 
 
