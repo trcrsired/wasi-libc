@@ -60,10 +60,12 @@ option(CHECK_SYMBOLS "Whether or not to check the exported symbols of libc.a" OF
 set(WASI_SDK_VERSION "" CACHE STRING "Version information for wasi-sdk to embed in headers")
 option(ENABLE_WERROR "Whether to compile with `-Werror`" OFF)
 option(ENABLE_COOP_THREADS "Whether to compile with cooperative threads support" OFF)
+option(ENABLE_MEMTAG "Enable memory tagging in dlmalloc for heap instrumentation" OFF)
+option(MEMTAG_NOVERBOSE "Disable verbose memory tagging output" OFF)
 
 if(TARGET_TRIPLE MATCHES "-threads$")
   set(WASI p1)
-  # TODO: As of this writing, wasi_thread_start.s uses non-position-independent
+  # TODO: As of this writing, wasi_thread_start.S uses non-position-independent
   # code, and I'm not sure how to make it position-independent.  Once we've
   # done that, we can enable libc.so for the wasi-threads build.
   set(SHARED OFF)

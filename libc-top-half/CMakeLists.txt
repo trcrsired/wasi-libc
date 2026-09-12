@@ -455,7 +455,7 @@ if (TARGET_TRIPLE MATCHES "wasip1-threads")
     musl/src/thread/wasi-threads/pthread_create.c
     musl/src/thread/wasi-threads/pthread_detach.c
     musl/src/thread/wasi-threads/pthread_join.c
-    musl/src/thread/wasi-threads/wasi_thread_start.s
+    musl/src/thread/wasi-threads/wasi_thread_start.S
     musl/src/thread/wasi-threads/__wasilibc_busywait.c
   )
 elseif(ENABLE_COOP_THREADS)
