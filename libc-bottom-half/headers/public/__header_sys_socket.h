@@ -16,6 +16,25 @@
 #define MSG_PEEK __WASI_RIFLAGS_RECV_PEEK
 #define MSG_WAITALL __WASI_RIFLAGS_RECV_WAITALL
 #define MSG_TRUNC __WASI_ROFLAGS_RECV_DATA_TRUNCATED
+#define MSG_NOSIGNAL 0x4000
+
+#define SOL_SOCKET 0x7fffffff
+#define SOMAXCONN 128
+
+#define SO_REUSEADDR 2
+#define SO_TYPE 3
+#define SO_ERROR 4
+#define SO_BROADCAST 6
+#define SO_SNDBUF 7
+#define SO_RCVBUF 8
+#define SO_KEEPALIVE 9
+#define SO_ACCEPTCONN 30
+#define SO_PROTOCOL 38
+#define SO_DOMAIN 39
+
+#define SOL_TCP 6
+#define SOL_UDP 17
+#define SOL_IPV6 41
 #elif defined(__wasip2__) || defined(__wasip3__)
 #define MSG_DONTWAIT 0x0040
 #define MSG_NOSIGNAL 0x4000
