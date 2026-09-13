@@ -140,10 +140,7 @@ set(bottom_half_sources
 
 if (WASI STREQUAL "p1")
   list(APPEND bottom_half_sources
-    cloudlibc/src/libc/sys/socket/recv.c
-    cloudlibc/src/libc/sys/socket/send.c
     cloudlibc/src/libc/sys/socket/shutdown.c
-    sources/accept-wasip1.c
     sources/socket-wasip1.c
   )
 else()

@@ -129,7 +129,6 @@ list(REMOVE_ITEM globbed_headers
   musl/include/sys/quota.h
   musl/include/sys/reboot.h
   musl/include/sys/sem.h
-  musl/include/sys/sendfile.h
   musl/include/sys/shm.h
   musl/include/sys/signalfd.h
   musl/include/sys/soundcard.h
@@ -155,12 +154,8 @@ list(REMOVE_ITEM globbed_headers
   musl/include/wordexp.h
 )
 
-# Exclude `netdb.h` from all of the p1 targets.
-if(WASI STREQUAL "p1")
-  list(REMOVE_ITEM globbed_headers
-    musl/include/netdb.h
-  )
-endif()
+# `netdb.h` is installed for p1 targets: getaddrinfo/freeaddrinfo are provided
+# by the WASIX resolve() extension in socket-wasip1.c.
 
 foreach(header ${globbed_headers})
   if(${header} MATCHES "^musl/include/")
